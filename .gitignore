@@ -3,4 +3,4 @@
 .bundle/
 tmp/
 log/
-.git/selfauthor_*
+.git/id_*
