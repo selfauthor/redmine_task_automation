@@ -1,0 +1,73 @@
+ru:
+  task_automation:
+    # ... (предыдущие записи остаются)
+    
+    # Секции настроек
+    settings:
+      section_main: "Основные настройки"
+      section_actions: "Действия"
+      section_test_results: "Результаты тестирования"
+      section_last_run: "Последний запуск (журнал)"
+      select_project: "-- Выберите проект --"
+      select_user: "-- Выберите пользователя --"
+      select_tracker: "-- Выберите трекер --"
+      run_now_hint: "Запустит обработку всех задач-шаблонов немедленно"
+    
+    # Сообщения flash
+    flash:
+      settings_saved: "Настройки успешно сохранены"
+      settings_save_error: "Ошибка сохранения настроек: %{error}"
+      run_success: "Обработка завершена успешно. Создано %{issues} задач и %{subtasks} подзадач"
+      run_with_errors: "Обработка завершена с ошибками. Создано %{issues} задач, ошибок: %{errors}"
+      run_error: "Критическая ошибка при запуске: %{error}"
+    
+    # Подтверждения действий
+    confirm:
+      test: "Вы уверены, что хотите протестировать настройки?"
+      run_now: "Вы уверены, что хотите запустить обработку задач вручную? Это может занять некоторое время."
+    
+    # Тестирование
+    test:
+      status: "Статус"
+      message: "Сообщение"
+      project_found: "Проект найден: %{name}"
+      project_not_found: "Проект не найден"
+      project_not_selected: "Проект не выбран"
+      author_found: "Автор найден: %{name}"
+      author_not_found: "Автор не найден"
+      author_not_selected: "Автор не выбран"
+      tracker_found: "Трекер найден: %{name}"
+      tracker_not_found: "Трекер не найден"
+      tracker_not_selected: "Трекер не выбран"
+      email_valid: "Email корректен"
+      email_invalid: "Некорректный формат email"
+      email_not_set: "Email не указан"
+      custom_fields_found: "Все необходимые кастомные поля найдены"
+      custom_fields_missing: "Отсутствуют поля: %{fields}"
+      field_not_found_short: "не найдено"
+      general_error: "Ошибка тестирования: %{error}"
+    
+    # Rake-задачи
+    rake:
+      process_start: "=== Запуск обработки задач-шаблонов ==="
+      start_time: "Время начала: %{time}"
+      results: "Результаты выполнения"
+      status: "Статус"
+      issues_created: "Создано основных задач"
+      subtasks_created: "Создано подзадач"
+      errors_count: "Количество ошибок"
+      error_details: "Детали ошибок:"
+      end_time: "Время окончания: %{time}"
+      duration: "Длительность: %{seconds} сек."
+      critical_error: "=== КРИТИЧЕСКАЯ ОШИБКА ==="
+      error_message: "Сообщение об ошибке"
+      backtrace: "Трассировка:"
+      test_start: "=== Тестирование настроек плагина ==="
+      testing_settings: "Проверка настроек:"
+      testing_custom_fields: "Проверка кастомных полей:"
+      test_complete: "=== Тестирование завершено ==="
+      test_error: "=== ОШИБКА ТЕСТИРОВАНИЯ ==="
+      log_cleared: "Журнал логов очищен"
+      log_not_found: "Файл журнала не найден"
+      log_read_error: "Ошибка чтения журнала: %{error}"
+      plugin_status: "=== Статус плагина ==="

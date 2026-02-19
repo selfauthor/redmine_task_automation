@@ -1,0 +1,222 @@
+<%# ============================================================================ %>
+<%# Файл: app/views/task_automation_settings/_settings.html.erb %>
+<%# Назначение: Представление (view) для страницы настроек плагина %>
+<%# ============================================================================ %>
+
+<%# Заголовок страницы настроек %>
+<h2><%= I18n.t('task_automation.settings_title') %></h2>
+
+<%# Форма настроек с отправкой на контроллер %>
+<%= form_tag({ controller: 'task_automation_settings', action: 'update' }, method: :post) do %>
+  
+  <%# Скрытое поле для authenticity_token (защита от CSRF) %>
+  <%= hidden_field_tag :authenticity_token, form_authenticity_token %>
+  
+  <%# ======================================================================== %>
+  <%# Секция: Основные настройки %>
+  <%# ======================================================================== %>
+  <fieldset class="box box-tab">
+    <legend><%= I18n.t('task_automation.settings.section_main') %></legend>
+    
+    <%# Поле: Проект с шаблонами задач %>
+    <p>
+      <%= label_tag 'settings[source_project_id]', I18n.t('task_automation.settings.source_project_id') %><br/>
+      <%= select_tag 'settings[source_project_id]',
+          options_from_collection_for_select(@projects, 'id', 'name', @settings[:source_project_id]),
+          include_blank: I18n.t('task_automation.settings.select_project'),
+          class: 'settings-select' %>
+      <span class="info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
+    </p>
+    
+    <%# Поле: Автор создаваемых задач %>
+    <p>
+      <%= label_tag 'settings[author_id]', I18n.t('task_automation.settings.author_id') %><br/>
+      <%= select_tag 'settings[author_id]',
+          options_from_collection_for_select(@users, 'id', 'name', @settings[:author_id]),
+          include_blank: I18n.t('task_automation.settings.select_user'),
+          class: 'settings-select' %>
+      <span class="info"><%= I18n.t('task_automation.settings.author_hint') %></span>
+    </p>
+    
+    <%# Поле: Трекер основных задач %>
+    <p>
+      <%= label_tag 'settings[tracker_id]', I18n.t('task_automation.settings.tracker_id') %><br/>
+      <%= select_tag 'settings[tracker_id]',
+          options_from_collection_for_select(@trackers, 'id', 'name', @settings[:tracker_id]),
+          include_blank: I18n.t('task_automation.settings.select_tracker'),
+          class: 'settings-select' %>
+      <span class="info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
+    </p>
+    
+    <%# Поле: Email для уведомлений об ошибках %>
+    <p>
+      <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %><br/>
+      <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email], 
+          class: 'settings-text', size: 50 %>
+      <span class="info"><%= I18n.t('task_automation.settings.email_hint') %></span>
+    </p>
+  </fieldset>
+  
+  <%# ======================================================================== %>
+  <%# Секция: Кнопки действий %>
+  <%# ======================================================================== %>
+  <fieldset class="box box-tab">
+    <legend><%= I18n.t('task_automation.settings.section_actions') %></legend>
+    
+    <%# Кнопка: Сохранить настройки %>
+    <p>
+      <%= submit_tag I18n.t('task_automation.buttons.save'), class: 'button-positive' %>
+    </p>
+    
+    <%# Кнопка: Тестировать настройки %>
+    <p>
+      <%= submit_tag I18n.t('task_automation.buttons.test'), 
+          formaction: url_for(controller: 'task_automation_settings', action: 'test'),
+          class: 'button-neutral',
+           { confirm: I18n.t('task_automation.confirm.test') } %>
+    </p>
+    
+    <%# Кнопка: Запустить обработку вручную %>
+    <p>
+      <%= submit_tag I18n.t('task_automation.buttons.run_now'), 
+          formaction: url_for(controller: 'task_automation_settings', action: 'test_run'),
+          class: 'button-positive',
+           { confirm: I18n.t('task_automation.confirm.run_now') } %>
+      <span class="info"><%= I18n.t('task_automation.settings.run_now_hint') %></span>
+    </p>
+  </fieldset>
+  
+<% end %>
+
+<%# ============================================================================ %>
+<%# Секция: Результаты тестирования (если есть) %>
+<%# ============================================================================ %>
+<% if session[:task_automation_test_results].present? %>
+  <fieldset class="box box-tab">
+    <legend><%= I18n.t('task_automation.settings.section_test_results') %></legend>
+    
+    <table class="list settings-test-results">
+      <thead>
+        <tr>
+          <th><%= I18n.t('task_automation.test.status') %></th>
+          <th><%= I18n.t('task_automation.test.message') %></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% session[:task_automation_test_results].each do |result| %>
+          <tr class="<%= result[:status] %>">
+            <td class="status">
+              <% case result[:status] %>
+              <% when 'success' %>
+                <span class="icon icon-check"></span> <%= I18n.t('task_automation.status.success') %>
+              <% when 'error' %>
+                <span class="icon icon-error"></span> <%= I18n.t('task_automation.status.error') %>
+              <% when 'warning' %>
+                <span class="icon icon-warning"></span> <%= I18n.t('task_automation.status.warning') %>
+              <% else %>
+                <span class="icon icon-info"></span> <%= I18n.t('task_automation.status.info') %>
+              <% end %>
+            </td>
+            <td><%= result[:message].html_safe %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </fieldset>
+  
+  <%# Очистка результатов тестов из сессии после отображения %>
+  <% session[:task_automation_test_results] = nil %>
+<% end %>
+
+<%# ============================================================================ %>
+<%# Секция: Информация о последнем запуске %>
+<%# ============================================================================ %>
+<% if File.exist?(Rails.root.join('log', 'task_automation.log')) %>
+  <fieldset class="box box-tab">
+    <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
+    
+    <%# Чтение последних 10 строк из журнала %>
+    <% begin %>
+      <% last_lines = IO.readlines(Rails.root.join('log', 'task_automation.log')).last(10) %>
+      <div class="log-preview">
+        <% last_lines.each do |line| %>
+          <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
+            <%= line.strip %>
+          </div>
+        <% end %>
+      </div>
+    <% rescue => e %>
+      <p class="error"><%= I18n.t('task_automation.log.read_error', error: e.message) %></p>
+    <% end %>
+  </fieldset>
+<% end %>
+
+<%# ============================================================================ %>
+<%# Стили для страницы настроек %>
+<%# ============================================================================ %>
+<style>
+  .settings-select {
+    min-width: 300px;
+  }
+  
+  .settings-text {
+    width: 300px;
+  }
+  
+  .settings-test-results tr.success {
+    background-color: #dff0d8;
+  }
+  
+  .settings-test-results tr.error {
+    background-color: #f2dede;
+  }
+  
+  .settings-test-results tr.warning {
+    background-color: #fcf8e3;
+  }
+  
+  .log-preview {
+    max-height: 300px;
+    overflow-y: auto;
+    background-color: #f5f5f5;
+    border: 1px solid #ddd;
+    padding: 10px;
+    font-family: monospace;
+    font-size: 12px;
+  }
+  
+  .log-line {
+    padding: 2px 0;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .log-line.error {
+    color: #a94442;
+  }
+  
+  .log-line.warning {
+    color: #8a6d3b;
+  }
+  
+  .log-line.info {
+    color: #333;
+  }
+  
+  fieldset.box-tab {
+    margin-bottom: 20px;
+    padding: 15px;
+  }
+  
+  fieldset.box-tab legend {
+    font-weight: bold;
+    padding: 0 10px;
+  }
+  
+  .info {
+    display: block;
+    margin-top: 5px;
+    color: #666;
+    font-size: 12px;
+    font-style: italic;
+  }
+</style>

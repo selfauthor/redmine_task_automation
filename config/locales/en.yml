@@ -1,0 +1,84 @@
+en:
+  task_automation:
+    plugin_name: "Redmine Task Automation"
+    plugin_description: "Automatic task creation based on date in custom fields"
+    
+    settings:
+      general_settings: "General Settings"
+      notification_settings: "Notification Settings"
+      
+      source_project_id: "Source Project (ID)"
+      author_id: "Task Author (User ID)"
+      tracker_id: "Template Tracker (ID)"
+      error_notification_email: "Error Notification Email"
+      
+      save: "Save"
+      test: "Test"
+      reset: "Reset"
+    
+    log_messages:
+      processing_start: "Starting task automation processing"
+      processing_end: "Task automation processing completed"
+      settings_invalid: "Settings are invalid, processing aborted"
+      templates_not_found: "No template tasks found"
+      templates_found: "Found %{count} template tasks"
+      template_processing: "Processing template task #%{id}"
+      
+      task_created: "Created task #%{id} \"%{subject}\"%{subtasks}"
+      subtasks_info: " (and %{count} subtasks)"
+      tasks_summary: "Created %{main} main tasks and %{sub} subtasks"
+      no_tasks_created: "No tasks created"
+      
+      notification_sent: "Error notification sent to %{email}"
+      notification_failed: "Failed to send notification: %{error}"
+      
+      project_not_found: "Specified project not found"
+      tracker_not_found: "Specified tracker not found"
+      group_not_found: "Specified user group not found"
+      validation_error: "Validation error: %{message}"
+      unexpected_error: "Unexpected error: %{message}"
+      
+      subtask_tracker_not_found: "Subtask #%{id}: Specified tracker not found"
+      subtask_tracker_not_allowed: "Subtask #%{id}: Tracker does not support subtasks"
+      
+      custom_field_not_exists: "Non-existent field specified in template: %{line}"
+      required_field_missing: "Required field missing in template: %{field}"
+      
+      source_project_not_found: "Source project with ID %{id} not found"
+      author_not_found: "User with ID %{id} not found"
+      tracker_not_found_by_id: "Tracker with ID %{id} not found"
+      invalid_email_format: "Invalid email format for notifications"
+    
+    custom_fields:
+      next_execution_date: "Next Execution Date"
+      advance_creation_days: "Create in Advance"
+      target_project: "Target Project"
+      target_tracker: "Tracker"
+      assignment: "Assignment"
+      watchers: "Watchers"
+      duration: "Duration"
+      working_days_only: "Working Days Only"
+      order_number: "Order Number"
+      interval_unit: "Interval Unit"
+      interval_value: "Interval"
+      day_number: "Day Number"
+      weekdays: "Weekdays"
+      month: "Month"
+    
+    interval_units:
+      year: "year"
+      month: "month"
+      week: "week"
+      day: "day"
+    
+    levels:
+      info: "INFO"
+      warning: "WARNING"
+      error: "ERROR"
+      debug: "DEBUG"
+    
+    datetime:
+      formats:
+        log: "%Y-%m-%d %H:%M:%S"
+        date_only: "%Y-%m-%d"
+        time_only: "%H:%M:%S"
