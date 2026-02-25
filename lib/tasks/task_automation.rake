@@ -20,7 +20,7 @@ if Redmine::Plugin.registered_plugins.has_key?(:redmine_task_automation)
         puts ""
         
         begin
-          result = TaskAutomation.process
+          result = TaskAutomation::Service.process
           
           puts ""
           puts '-' * 60

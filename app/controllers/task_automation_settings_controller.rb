@@ -1,34 +1,22 @@
 # ============================================================================
-# Файл: app/controllers/task_automation_settings_controller.rb
-# Назначение: Контроллер для страницы настроек плагина автоматизации задач
+# Р¤Р°Р№Р»: app/controllers/task_automation_settings_controller.rb
 # ============================================================================
 
 class TaskAutomationSettingsController < ApplicationController
-  # ============================================================================
-  # Фильтры безопасности
-  # ============================================================================
   before_action :require_login
   before_action :require_admin
   before_action :load_settings, only: [:index, :update, :test_run, :test]
   
-  # ============================================================================
-  # Действие: Отображение страницы настроек
-  # ============================================================================
   def index
     @projects = Project.active.sorted
     @users = User.active.sorted
     @trackers = Tracker.sorted
     @groups = Group.sorted
-    
-    # Получение информации о кастомных полях из конфигурации
-    @custom_fields_info = TaskAutomation.get_all_custom_fields_with_ids
+    @custom_fields_info = TaskAutomation::Service.get_all_custom_fields_with_ids
     
     render partial: 'settings/task_automation_settings', locals: { settings: @settings }
   end
   
-  # ============================================================================
-  # Действие: Сохранение настроек плагина
-  # ============================================================================
   def update
     begin
       params_settings = params[:settings]
@@ -40,7 +28,7 @@ class TaskAutomationSettingsController < ApplicationController
         @users = User.active.sorted
         @trackers = Tracker.sorted
         @groups = Group.sorted
-        @custom_fields_info = TaskAutomation.get_all_custom_fields_with_ids
+        @custom_fields_info = TaskAutomation::Service.get_all_custom_fields_with_ids
         render partial: 'settings/task_automation_settings', locals: { settings: params_settings }
         return
       end
@@ -55,7 +43,7 @@ class TaskAutomationSettingsController < ApplicationController
       flash[:notice] = I18n.t('task_automation.flash.settings_saved')
       
     rescue => e
-      Rails.logger.error "[TaskAutomation] Ошибка сохранения настроек: #{e.message}"
+      Rails.logger.error "[TaskAutomation] РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ РЅР°СЃС‚СЂРѕРµРє: #{e.message}"
       Rails.logger.error e.backtrace.join("\n")
       flash[:error] = I18n.t('task_automation.flash.settings_save_error', error: e.message)
     end
@@ -63,14 +51,11 @@ class TaskAutomationSettingsController < ApplicationController
     redirect_to controller: 'task_automation_settings', action: 'index'
   end
   
-  # ============================================================================
-  # Действие: Ручной запуск обработки задач
-  # ============================================================================
   def test_run
-    Rails.logger.info "[TaskAutomation] Запущен ручной запуск обработки задач"
+    Rails.logger.info "[TaskAutomation] Р—Р°РїСѓС‰РµРЅ СЂСѓС‡РЅРѕР№ Р·Р°РїСѓСЃРє РѕР±СЂР°Р±РѕС‚РєРё Р·Р°РґР°С‡"
     
     begin
-      result = TaskAutomation.process
+      result = TaskAutomation::Service.process
       
       if result[:success]
         message = I18n.t('task_automation.flash.run_success', 
@@ -89,7 +74,7 @@ class TaskAutomationSettingsController < ApplicationController
       end
       
     rescue => e
-      Rails.logger.error "[TaskAutomation] Критическая ошибка при ручном запуске: #{e.message}"
+      Rails.logger.error "[TaskAutomation] РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР° РїСЂРё СЂСѓС‡РЅРѕРј Р·Р°РїСѓСЃРєРµ: #{e.message}"
       Rails.logger.error e.backtrace.join("\n")
       flash[:error] = I18n.t('task_automation.flash.run_error', error: e.message)
     end
@@ -97,14 +82,10 @@ class TaskAutomationSettingsController < ApplicationController
     redirect_to controller: 'task_automation_settings', action: 'index'
   end
   
-  # ============================================================================
-  # Действие: Тестирование подключения и настроек
-  # ============================================================================
   def test
     test_results = []
     
     begin
-      # Тест 1: Проверка проекта с шаблонами
       project_id = @settings[:source_project_id].to_i
       if project_id > 0
         project = Project.find_by(id: project_id)
@@ -117,7 +98,6 @@ class TaskAutomationSettingsController < ApplicationController
         test_results << { status: 'warning', message: I18n.t('task_automation.test.project_not_selected') }
       end
       
-      # Тест 2: Проверка пользователя-автора
       author_id = @settings[:author_id].to_i
       if author_id > 0
         author = User.find_by(id: author_id)
@@ -130,7 +110,6 @@ class TaskAutomationSettingsController < ApplicationController
         test_results << { status: 'warning', message: I18n.t('task_automation.test.author_not_selected') }
       end
       
-      # Тест 3: Проверка трекера
       tracker_id = @settings[:tracker_id].to_i
       if tracker_id > 0
         tracker = Tracker.find_by(id: tracker_id)
@@ -143,7 +122,6 @@ class TaskAutomationSettingsController < ApplicationController
         test_results << { status: 'warning', message: I18n.t('task_automation.test.tracker_not_selected') }
       end
       
-      # Тест 4: Проверка email для уведомлений
       email = @settings[:error_notification_email]
       if email.present?
         if email.match?(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z\d\-]+)*\.[a-z]+\z/i)
@@ -155,11 +133,7 @@ class TaskAutomationSettingsController < ApplicationController
         test_results << { status: 'warning', message: I18n.t('task_automation.test.email_not_set') }
       end
       
-      # ========================================================================
-      # Тест 5: Проверка наличия кастомных полей
-      # ИСПОЛЬЗУЕТ КОНСТАНТЫ ИЗ CONFIGURATION
-      # ========================================================================
-      missing_fields = TaskAutomation.check_missing_custom_fields
+      missing_fields = TaskAutomation::Service.check_missing_custom_fields
       
       if missing_fields.empty?
         test_results << { status: 'success', message: I18n.t('task_automation.test.custom_fields_found') }
@@ -168,7 +142,7 @@ class TaskAutomationSettingsController < ApplicationController
       end
       
     rescue => e
-      Rails.logger.error "[TaskAutomation] Ошибка тестирования настроек: #{e.message}"
+      Rails.logger.error "[TaskAutomation] РћС€РёР±РєР° С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏ РЅР°СЃС‚СЂРѕРµРє: #{e.message}"
       test_results << { status: 'error', message: I18n.t('task_automation.test.general_error', error: e.message) }
     end
     
@@ -176,9 +150,6 @@ class TaskAutomationSettingsController < ApplicationController
     redirect_to controller: 'task_automation_settings', action: 'index'
   end
   
-  # ============================================================================
-  # Приватные методы контроллера
-  # ============================================================================
   private
   
   def load_settings
