@@ -1,4 +1,8 @@
 ru:
+
+ # Label для пункта меню
+  label_task_automation: "Автоматизация задач"
+
   task_automation:
     # ... (предыдущие записи остаются)
     

@@ -1,4 +1,6 @@
 en:
+  label_task_automation: "Task Automation"
+
   task_automation:
     plugin_name: "Redmine Task Automation"
     plugin_description: "Automatic task creation based on date in custom fields"
