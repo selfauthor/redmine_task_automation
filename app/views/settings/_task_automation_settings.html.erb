@@ -25,7 +25,7 @@
           options_from_collection_for_select(@projects, 'id', 'name', @settings[:source_project_id]),
           include_blank: I18n.t('task_automation.settings.select_project'),
           class: 'settings-select' %>
-      <span class="info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
+      <span class="ta-info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
     </p>
     
     <p>
@@ -34,7 +34,7 @@
           options_from_collection_for_select(@users, 'id', 'name', @settings[:author_id]),
           include_blank: I18n.t('task_automation.settings.select_user'),
           class: 'settings-select' %>
-      <span class="info"><%= I18n.t('task_automation.settings.author_hint') %></span>
+      <span class="ta-info"><%= I18n.t('task_automation.settings.author_hint') %></span>
     </p>
     
     <p>
@@ -43,39 +43,36 @@
           options_from_collection_for_select(@trackers, 'id', 'name', @settings[:tracker_id]),
           include_blank: I18n.t('task_automation.settings.select_tracker'),
           class: 'settings-select' %>
-      <span class="info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
+      <span class="ta-info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
     </p>
     
     <p>
       <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %><br/>
-      <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email], 
+      <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email],
           class: 'settings-text', size: 50 %>
-      <span class="info"><%= I18n.t('task_automation.settings.email_hint') %></span>
+      <span class="ta-info"><%= I18n.t('task_automation.settings.email_hint') %></span>
     </p>
   </fieldset>
   
-  <fieldset class="box box-tab">
-    <legend><%= I18n.t('task_automation.settings.section_actions') %></legend>
-    
-    <p>
-      <%= submit_tag I18n.t('task_automation.buttons.save'), class: 'button-positive' %>
-    </p>
-    
-    <p>
-      <%= submit_tag I18n.t('task_automation.buttons.test'), 
-          formaction: '/settings/plugin/redmine_task_automation/test',
-          class: 'button-neutral',
-          data: { confirm: I18n.t('task_automation.confirm.test') } %>
-    </p>
-    
-    <p>
-      <%= submit_tag I18n.t('task_automation.buttons.run_now'), 
-          formaction: '/settings/plugin/redmine_task_automation/run',
-          class: 'button-positive',
-          data: { confirm: I18n.t('task_automation.confirm.run_now') } %>
-      <span class="info"><%= I18n.t('task_automation.settings.run_now_hint') %></span>
-    </p>
-  </fieldset>
+<fieldset class="box box-tab">
+  <legend><%= I18n.t('task_automation.settings.section_actions') %></legend>
+  
+  <p>
+    <%= submit_tag I18n.t('task_automation.buttons.test'),
+        formaction: '/settings/plugin/redmine_task_automation/test',
+        class: 'button-neutral',
+        data: { confirm: I18n.t('task_automation.confirm.test') } %>
+    <span class="ta-info"><%= I18n.t('task_automation.buttons.test_hint') %></span>
+  </p>
+  
+  <p>
+    <%= submit_tag I18n.t('task_automation.buttons.run_now'),
+        formaction: '/settings/plugin/redmine_task_automation/run',
+        class: 'button-positive',
+        data: { confirm: I18n.t('task_automation.confirm.run_now') } %>
+    <span class="ta-info"><%= I18n.t('task_automation.buttons.run_now_hint') %></span>
+  </p>
+</fieldset>
   
 <% end %>
 
@@ -157,5 +154,5 @@
   .log-line.info { color: #333; }
   fieldset.box-tab { margin-bottom: 20px; padding: 15px; }
   fieldset.box-tab legend { font-weight: bold; padding: 0 10px; }
-  .info { display: block; margin-top: 5px; color: #666; font-size: 12px; font-style: italic; }
+  .ta-info { display: block; margin-top: 5px; color: #666; font-size: 12px; font-style: italic; }
 </style>

@@ -1,0 +1,30 @@
+/* Переопределяем padding для нашего пункта меню */
+#admin-menu a.task-automation-menu.icon,
+#admin-menu .task-automation-menu.icon {
+  padding-left: 0 !important;
+}
+
+/* Иконка в админ-меню */
+#admin-menu a.icon-task_automation:before,
+#admin-menu .icon-task_automation:before {
+  content: '';
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  margin-left: 0;
+  padding-left: 0;
+  vertical-align: text-bottom;
+  background: url(../icons/task_automation.svg) no-repeat center;
+  background-size: contain;
+}
+
+/* При наведении - чуть темнее */
+#admin-menu a.icon-task_automation:hover:before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230d5a99' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3Cpath d='M12 2v2'/%3E%3Cpath d='M12 20v2'/%3E%3Cpath d='M2 12h2'/%3E%3Cpath d='M20 12h2'/%3E%3C/svg%3E");
+}
+
+/* Для тёмной темы - светло-синий */
+.theme-dark #admin-menu a.icon-task_automation:before {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235ab0ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3Cpath d='M12 2v2'/%3E%3Cpath d='M12 20v2'/%3E%3Cpath d='M2 12h2'/%3E%3Cpath d='M20 12h2'/%3E%3C/svg%3E");
+}
