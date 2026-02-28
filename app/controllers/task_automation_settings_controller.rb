@@ -18,39 +18,44 @@ class TaskAutomationSettingsController < ApplicationController
   end
   
   def update
+    # Проверяем, какая кнопка была нажата
+    if params[:test_settings]
+      test
+      return
+    elsif params[:run_now]
+      test_run
+      return
+    end
+  
+    # Стандартное сохранение настроек
     begin
       params_settings = params[:settings]
       validation_errors = validate_settings_params(params_settings)
-      
+    
       if validation_errors.any?
         flash[:error] = validation_errors.join('<br/>').html_safe
-        @projects = Project.active.sorted
-        @users = User.active.sorted
-        @trackers = Tracker.sorted
-        @groups = Group.sorted
-        @custom_fields_info = TaskAutomation::Service.get_all_custom_fields_with_ids
-        render partial: 'settings/task_automation_settings', locals: { settings: params_settings }
+        redirect_to controller: 'task_automation_settings', action: 'index'
         return
       end
-      
+    
       Setting.plugin_redmine_task_automation = {
         'source_project_id' => params_settings[:source_project_id].to_i,
         'author_id' => params_settings[:author_id].to_i,
         'tracker_id' => params_settings[:tracker_id].to_i,
         'error_notification_email' => params_settings[:error_notification_email]
       }
-      
+    
       flash[:notice] = I18n.t('task_automation.flash.settings_saved')
-      
+    
     rescue => e
       Rails.logger.error "[TaskAutomation] Ошибка сохранения настроек: #{e.message}"
       Rails.logger.error e.backtrace.join("\n")
       flash[:error] = I18n.t('task_automation.flash.settings_save_error', error: e.message)
     end
-    
-    redirect_to controller: 'task_automation_settings', action: 'index'
-  end
   
+    redirect_to controller: 'settings', action: 'plugin', id: 'redmine_task_automation'
+  end
+
   def test_run
     Rails.logger.info "[TaskAutomation] Запущен ручной запуск обработки задач"
     

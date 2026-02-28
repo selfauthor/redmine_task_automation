@@ -9,57 +9,50 @@
 <% @groups ||= Group.sorted %>
 <% @settings ||= Setting.plugin_redmine_task_automation %>
 
-<h2><%= I18n.t('task_automation.settings_title') %></h2>
+<fieldset class="box tabular">
+  <legend><%= I18n.t('task_automation.settings.section_main') %></legend>
+  
+  <p>
+    <%= label_tag 'settings[source_project_id]', I18n.t('task_automation.settings.source_project_id') %><br/>
+    <%= select_tag 'settings[source_project_id]',
+        options_from_collection_for_select(@projects, 'id', 'name', @settings[:source_project_id]),
+        include_blank: I18n.t('task_automation.settings.select_project'),
+        class: 'settings-select' %>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
+  </p>
+  
+  <p>
+    <%= label_tag 'settings[author_id]', I18n.t('task_automation.settings.author_id') %><br/>
+    <%= select_tag 'settings[author_id]',
+        options_from_collection_for_select(@users, 'id', 'name', @settings[:author_id]),
+        include_blank: I18n.t('task_automation.settings.select_user'),
+        class: 'settings-select' %>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.author_hint') %></span>
+  </p>
+  
+  <p>
+    <%= label_tag 'settings[tracker_id]', I18n.t('task_automation.settings.tracker_id') %><br/>
+    <%= select_tag 'settings[tracker_id]',
+        options_from_collection_for_select(@trackers, 'id', 'name', @settings[:tracker_id]),
+        include_blank: I18n.t('task_automation.settings.select_tracker'),
+        class: 'settings-select' %>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
+  </p>
+  
+  <p>
+    <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %><br/>
+    <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email],
+        class: 'settings-text', size: 50 %>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.email_hint') %></span>
+  </p>
+</fieldset>
 
-<%# Форма настроек %>
-<%= form_tag('/settings/plugin/redmine_task_automation', method: :post) do %>
-  
-  <%= hidden_field_tag :authenticity_token, form_authenticity_token %>
-  
-  <fieldset class="box box-tab">
-    <legend><%= I18n.t('task_automation.settings.section_main') %></legend>
-    
-    <p>
-      <%= label_tag 'settings[source_project_id]', I18n.t('task_automation.settings.source_project_id') %><br/>
-      <%= select_tag 'settings[source_project_id]',
-          options_from_collection_for_select(@projects, 'id', 'name', @settings[:source_project_id]),
-          include_blank: I18n.t('task_automation.settings.select_project'),
-          class: 'settings-select' %>
-      <span class="ta-info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
-    </p>
-    
-    <p>
-      <%= label_tag 'settings[author_id]', I18n.t('task_automation.settings.author_id') %><br/>
-      <%= select_tag 'settings[author_id]',
-          options_from_collection_for_select(@users, 'id', 'name', @settings[:author_id]),
-          include_blank: I18n.t('task_automation.settings.select_user'),
-          class: 'settings-select' %>
-      <span class="ta-info"><%= I18n.t('task_automation.settings.author_hint') %></span>
-    </p>
-    
-    <p>
-      <%= label_tag 'settings[tracker_id]', I18n.t('task_automation.settings.tracker_id') %><br/>
-      <%= select_tag 'settings[tracker_id]',
-          options_from_collection_for_select(@trackers, 'id', 'name', @settings[:tracker_id]),
-          include_blank: I18n.t('task_automation.settings.select_tracker'),
-          class: 'settings-select' %>
-      <span class="ta-info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
-    </p>
-    
-    <p>
-      <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %><br/>
-      <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email],
-          class: 'settings-text', size: 50 %>
-      <span class="ta-info"><%= I18n.t('task_automation.settings.email_hint') %></span>
-    </p>
-  </fieldset>
-  
-<fieldset class="box box-tab">
+<fieldset class="box tabular">
   <legend><%= I18n.t('task_automation.settings.section_actions') %></legend>
   
   <p>
     <%= submit_tag I18n.t('task_automation.buttons.test'),
-        formaction: '/settings/plugin/redmine_task_automation/test',
+        name: 'test_settings',
         class: 'button-neutral',
         data: { confirm: I18n.t('task_automation.confirm.test') } %>
     <span class="ta-info"><%= I18n.t('task_automation.buttons.test_hint') %></span>
@@ -67,71 +60,63 @@
   
   <p>
     <%= submit_tag I18n.t('task_automation.buttons.run_now'),
-        formaction: '/settings/plugin/redmine_task_automation/run',
+        name: 'run_now',
         class: 'button-positive',
         data: { confirm: I18n.t('task_automation.confirm.run_now') } %>
-    <span class="ta-info"><%= I18n.t('task_automation.buttons.run_now_hint') %></span>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.run_now_hint') %></span>
   </p>
 </fieldset>
-  
-<% end %>
 
 <%# Секция: Результаты тестирования (если есть) %>
 <% if session[:task_automation_test_results].present? %>
-  <fieldset class="box box-tab">
-    <legend><%= I18n.t('task_automation.settings.section_test_results') %></legend>
-    
-    <table class="list settings-test-results">
-      <thead>
-        <tr>
-          <th><%= I18n.t('task_automation.test.status') %></th>
-          <th><%= I18n.t('task_automation.test.message') %></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% session[:task_automation_test_results].each do |result| %>
-          <tr class="<%= result[:status] %>">
-            <td class="status">
-              <% case result[:status] %>
-              <% when 'success' %>
-                <span class="icon icon-check"></span> <%= I18n.t('task_automation.status.success') %>
-              <% when 'error' %>
-                <span class="icon icon-error"></span> <%= I18n.t('task_automation.status.error') %>
-              <% when 'warning' %>
-                <span class="icon icon-warning"></span> <%= I18n.t('task_automation.status.warning') %>
-              <% else %>
-                <span class="icon icon-info"></span> <%= I18n.t('task_automation.status.info') %>
-              <% end %>
-            </td>
-            <td><%= result[:message].html_safe %></td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
-  </fieldset>
+<fieldset class="box tabular">
+  <legend><%= I18n.t('task_automation.settings.section_test_results') %></legend>
   
-  <% session[:task_automation_test_results] = nil %>
+  <table class="list settings-test-results">
+    <thead>
+      <tr>
+        <th><%= I18n.t('task_automation.test.status') %></th>
+        <th><%= I18n.t('task_automation.test.message') %></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% session[:task_automation_test_results].each do |result| %>
+        <tr class="<%= result[:status] %>">
+          <td class="status">
+            <% case result[:status] %>
+            <% when 'success' %>
+              <span class="icon icon-check"></span> <%= I18n.t('task_automation.status.success') %>
+            <% when 'error' %>
+              <span class="icon icon-error"></span> <%= I18n.t('task_automation.status.error') %>
+            <% when 'warning' %>
+              <span class="icon icon-warning"></span> <%= I18n.t('task_automation.status.warning') %>
+            <% else %>
+              <span class="icon icon-info"></span> <%= I18n.t('task_automation.status.info') %>
+            <% end %>
+          </td>
+          <td><%= result[:message].html_safe %></td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</fieldset>
 <% end %>
 
 <%# Секция: Информация о последнем запуске %>
-<fieldset class="box box-tab">
+<% if File.exist?(Rails.root.join('log', 'task_automation.log')) %>
+<fieldset class="box tabular">
   <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
   
   <% begin %>
-    <% log_file = Rails.root.join('log', 'task_automation.log') %>
-    <% if File.exist?(log_file) && File.size(log_file) > 0 %>
-      <% last_lines = IO.readlines(log_file).last(10) %>
-      <% if last_lines.any? %>
-        <div class="log-preview">
-          <% last_lines.each do |line| %>
-            <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
-              <%= line.strip %>
-            </div>
-          <% end %>
-        </div>
-      <% else %>
-        <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
-      <% end %>
+    <% last_lines = IO.readlines(Rails.root.join('log', 'task_automation.log')).last(10) %>
+    <% if last_lines.any? %>
+      <div class="log-preview">
+        <% last_lines.each do |line| %>
+          <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
+            <%= line.strip %>
+          </div>
+        <% end %>
+      </div>
     <% else %>
       <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
     <% end %>
@@ -139,6 +124,12 @@
     <p class="error"><%= I18n.t('task_automation.log.read_error', error: e.message) %></p>
   <% end %>
 </fieldset>
+<% else %>
+<fieldset class="box tabular">
+  <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
+  <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
+</fieldset>
+<% end %>
 
 <style>
   .settings-select { min-width: 300px; }
@@ -159,7 +150,7 @@
   .log-line.error { color: #a94442; }
   .log-line.warning { color: #8a6d3b; }
   .log-line.info { color: #333; }
-  fieldset.box-tab { margin-bottom: 20px; padding: 15px; }
-  fieldset.box-tab legend { font-weight: bold; padding: 0 10px; }
+  fieldset.box.tabular { margin-bottom: 20px; padding: 15px; }
+  fieldset.box.tabular legend { font-weight: bold; padding: 0 10px; }
   .ta-info { display: block; margin-top: 5px; color: #666; font-size: 12px; font-style: italic; }
 </style>
