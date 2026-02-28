@@ -114,24 +114,31 @@
 <% end %>
 
 <%# Секция: Информация о последнем запуске %>
-<% if File.exist?(Rails.root.join('log', 'task_automation.log')) %>
-  <fieldset class="box box-tab">
-    <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
-    
-    <% begin %>
-      <% last_lines = IO.readlines(Rails.root.join('log', 'task_automation.log')).last(10) %>
-      <div class="log-preview">
-        <% last_lines.each do |line| %>
-          <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
-            <%= line.strip %>
-          </div>
-        <% end %>
-      </div>
-    <% rescue => e %>
-      <p class="error"><%= I18n.t('task_automation.log.read_error', error: e.message) %></p>
+<fieldset class="box box-tab">
+  <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
+  
+  <% begin %>
+    <% log_file = Rails.root.join('log', 'task_automation.log') %>
+    <% if File.exist?(log_file) && File.size(log_file) > 0 %>
+      <% last_lines = IO.readlines(log_file).last(10) %>
+      <% if last_lines.any? %>
+        <div class="log-preview">
+          <% last_lines.each do |line| %>
+            <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
+              <%= line.strip %>
+            </div>
+          <% end %>
+        </div>
+      <% else %>
+        <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
+      <% end %>
+    <% else %>
+      <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
     <% end %>
-  </fieldset>
-<% end %>
+  <% rescue => e %>
+    <p class="error"><%= I18n.t('task_automation.log.read_error', error: e.message) %></p>
+  <% end %>
+</fieldset>
 
 <style>
   .settings-select { min-width: 300px; }
