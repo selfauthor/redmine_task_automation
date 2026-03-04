@@ -1,7 +1,6 @@
 <%# ============================================================================ %>
 <%# Файл: app/views/settings/_task_automation_settings.html.erb %>
 <%# ============================================================================ %>
-
 <%# Инициализация переменных, если они не установлены %>
 <% @projects ||= Project.active.sorted %>
 <% @users ||= User.active.sorted %>
@@ -13,35 +12,35 @@
   <legend><%= I18n.t('task_automation.settings.section_main') %></legend>
   
   <p>
-    <%= label_tag 'settings[source_project_id]', I18n.t('task_automation.settings.source_project_id') %><br/>
+    <%= label_tag 'settings[source_project_id]', I18n.t('task_automation.settings.source_project_id') %>
     <%= select_tag 'settings[source_project_id]',
-        options_from_collection_for_select(@projects, 'id', 'name', @settings[:source_project_id]),
+        options_from_collection_for_select(@projects, 'id', 'name', @settings['source_project_id']),
         include_blank: I18n.t('task_automation.settings.select_project'),
         class: 'settings-select' %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.source_project_hint') %></span>
   </p>
   
   <p>
-    <%= label_tag 'settings[author_id]', I18n.t('task_automation.settings.author_id') %><br/>
+    <%= label_tag 'settings[author_id]', I18n.t('task_automation.settings.author_id') %>
     <%= select_tag 'settings[author_id]',
-        options_from_collection_for_select(@users, 'id', 'name', @settings[:author_id]),
+        options_from_collection_for_select(@users, 'id', 'name', @settings['author_id']),
         include_blank: I18n.t('task_automation.settings.select_user'),
         class: 'settings-select' %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.author_hint') %></span>
   </p>
   
   <p>
-    <%= label_tag 'settings[tracker_id]', I18n.t('task_automation.settings.tracker_id') %><br/>
+    <%= label_tag 'settings[tracker_id]', I18n.t('task_automation.settings.tracker_id') %>
     <%= select_tag 'settings[tracker_id]',
-        options_from_collection_for_select(@trackers, 'id', 'name', @settings[:tracker_id]),
+        options_from_collection_for_select(@trackers, 'id', 'name', @settings['tracker_id']),
         include_blank: I18n.t('task_automation.settings.select_tracker'),
         class: 'settings-select' %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
   </p>
   
   <p>
-    <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %><br/>
-    <%= text_field_tag 'settings[error_notification_email]', @settings[:error_notification_email],
+    <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %>
+    <%= text_field_tag 'settings[error_notification_email]', @settings['error_notification_email'],
         class: 'settings-text', size: 50 %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.email_hint') %></span>
   </p>
@@ -54,6 +53,8 @@
     <%= submit_tag I18n.t('task_automation.buttons.test'),
         name: 'test_settings',
         class: 'button-neutral',
+        formaction: task_automation_test_path,
+        formmethod: 'post',
         data: { confirm: I18n.t('task_automation.confirm.test') } %>
     <span class="ta-info"><%= I18n.t('task_automation.buttons.test_hint') %></span>
   </p>
@@ -62,6 +63,8 @@
     <%= submit_tag I18n.t('task_automation.buttons.run_now'),
         name: 'run_now',
         class: 'button-positive',
+        formaction: task_automation_run_path,
+        formmethod: 'post',
         data: { confirm: I18n.t('task_automation.confirm.run_now') } %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.run_now_hint') %></span>
   </p>
@@ -72,6 +75,31 @@
 <fieldset class="box tabular">
   <legend><%= I18n.t('task_automation.settings.section_test_results') %></legend>
   
+  <%# Подсчёт статистики %>
+  <% success_count = session[:task_automation_test_results].count { |r| r[:status] == 'success' } %>
+  <% error_count = session[:task_automation_test_results].count { |r| r[:status] == 'error' } %>
+  <% warning_count = session[:task_automation_test_results].count { |r| r[:status] == 'warning' } %>
+  <% total_count = session[:task_automation_test_results].count %>
+  
+  <%# Сводная статистика %>
+  <div class="test-summary">
+    <span class="summary-item success">
+      <span class="icon icon-ok"></span>
+      <%= I18n.t('task_automation.test.summary_success', count: success_count) %>
+    </span>
+    <span class="summary-item error">
+      <span class="icon icon-error"></span>
+      <%= I18n.t('task_automation.test.summary_error', count: error_count) %>
+    </span>
+    <span class="summary-item warning">
+      <span class="icon icon-warning"></span>
+      <%= I18n.t('task_automation.test.summary_warning', count: warning_count) %>
+    </span>
+    <span class="summary-item total">
+      <%= I18n.t('task_automation.test.summary_total', count: total_count) %>
+    </span>
+  </div>
+  
   <table class="list settings-test-results">
     <thead>
       <tr>
@@ -81,76 +109,153 @@
     </thead>
     <tbody>
       <% session[:task_automation_test_results].each do |result| %>
-        <tr class="<%= result[:status] %>">
-          <td class="status">
-            <% case result[:status] %>
-            <% when 'success' %>
-              <span class="icon icon-check"></span> <%= I18n.t('task_automation.status.success') %>
-            <% when 'error' %>
-              <span class="icon icon-error"></span> <%= I18n.t('task_automation.status.error') %>
-            <% when 'warning' %>
-              <span class="icon icon-warning"></span> <%= I18n.t('task_automation.status.warning') %>
-            <% else %>
-              <span class="icon icon-info"></span> <%= I18n.t('task_automation.status.info') %>
-            <% end %>
-          </td>
-          <td><%= result[:message].html_safe %></td>
-        </tr>
+      <tr class="<%= result[:status] %>">
+        <td class="status">
+          <% case result[:status] %>
+          <% when 'success' %>
+            <span class="icon icon-ok"></span> <%= I18n.t('task_automation.status.success') %>
+          <% when 'error' %>
+            <span class="icon icon-error"></span> <%= I18n.t('task_automation.status.error') %>
+          <% when 'warning' %>
+            <span class="icon icon-warning"></span> <%= I18n.t('task_automation.status.warning') %>
+          <% else %>
+            <span class="icon icon-info"></span> <%= I18n.t('task_automation.status.info') %>
+          <% end %>
+        </td>
+        <td style="text-align: left;"><%= result[:message].html_safe %></td>
+      </tr>
       <% end %>
     </tbody>
   </table>
+  
+  <%# Кнопка очистки результатов %>
+  <p class="test-actions">
+    <%= link_to I18n.t('task_automation.buttons.clear_test_results'),
+        { controller: 'settings', action: 'plugin', id: 'redmine_task_automation', clear_test: '1' },
+        method: :get,
+        class: 'button-neutral' %>
+  </p>
 </fieldset>
 <% end %>
 
 <%# Секция: Информация о последнем запуске %>
-<% if File.exist?(Rails.root.join('log', 'task_automation.log')) %>
 <fieldset class="box tabular">
   <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
   
-  <% begin %>
-    <% last_lines = IO.readlines(Rails.root.join('log', 'task_automation.log')).last(10) %>
-    <% if last_lines.any? %>
-      <div class="log-preview">
-        <% last_lines.each do |line| %>
-          <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : 'info' %>">
-            <%= line.strip %>
-          </div>
-        <% end %>
+  <% 
+    @last_log_lines = []
+    if File.exist?(Rails.root.join('log', 'task_automation.log'))
+      begin
+        all_lines = IO.readlines(Rails.root.join('log', 'task_automation.log'))
+        # Находим последнюю секцию тестирования
+        test_start_index = all_lines.rindex { |line| line.include?('=== НАЧАЛО ТЕСТИРОВАНИЯ НАСТРОЕК ===') }
+        test_end_index = all_lines.rindex { |line| line.include?('=== ЗАВЕРШЕНИЕ ТЕСТИРОВАНИЯ НАСТРОЕК ===') }
+
+        if test_start_index && test_end_index && test_end_index > test_start_index
+          @last_log_lines = all_lines[test_start_index..test_end_index]
+        else
+          @last_log_lines = all_lines.last(10)
+        end
+      rescue => e
+        Rails.logger.error "[TaskAutomation] Ошибка чтения журнала: #{e.message} "
+      end
+    end
+  %>
+  
+  <% if @last_log_lines.present? %>
+    <div class="log-preview">
+      <% @last_log_lines.each do |line| %>
+      <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : line.include?('ТЕСТИРОВАНИЯ') ? 'info' : 'info' %>">
+        <%= line.strip %>
       </div>
-    <% else %>
-      <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
-    <% end %>
-  <% rescue => e %>
-    <p class="error"><%= I18n.t('task_automation.log.read_error', error: e.message) %></p>
+      <% end %>
+    </div>
+  <% else %>
+    <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
   <% end %>
 </fieldset>
-<% else %>
-<fieldset class="box tabular">
-  <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
-  <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
-</fieldset>
-<% end %>
 
 <style>
-  .settings-select { min-width: 300px; }
-  .settings-text { width: 300px; }
-  .settings-test-results tr.success { background-color: #dff0d8; }
-  .settings-test-results tr.error { background-color: #f2dede; }
-  .settings-test-results tr.warning { background-color: #fcf8e3; }
-  .log-preview {
-    max-height: 300px;
-    overflow-y: auto;
-    background-color: #f5f5f5;
-    border: 1px solid #ddd;
-    padding: 10px;
-    font-family: monospace;
-    font-size: 12px;
-  }
-  .log-line { padding: 2px 0; border-bottom: 1px solid #eee; }
-  .log-line.error { color: #a94442; }
-  .log-line.warning { color: #8a6d3b; }
-  .log-line.info { color: #333; }
-  fieldset.box.tabular { margin-bottom: 20px; padding: 15px; }
-  fieldset.box.tabular legend { font-weight: bold; padding: 0 10px; }
-  .ta-info { display: block; margin-top: 5px; color: #666; font-size: 12px; font-style: italic; }
+.settings-select { min-width: 300px; }
+.settings-text { width: 300px; }
+.settings-test-results tr.success { background-color: #dff0d8; }
+.settings-test-results tr.error { background-color: #f2dede; }
+.settings-test-results tr.warning { background-color: #fcf8e3; }
+.settings-test-results td.status .icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-size: 16px 16px;
+  background-repeat: no-repeat;
+  background-position: center;
+  margin: 0 5px 0 0;
+  padding: 0;
+  flex-shrink: 0;
+  line-height: 1;
+  vertical-align: middle;
+}
+.log-preview {
+  max-height: 300px;
+  overflow-y: auto;
+  background-color: #f5f5f5;
+  border: 1px solid #ddd;
+  padding: 10px;
+  font-family: monospace;
+  font-size: 12px;
+}
+.log-line { padding: 2px 0; border-bottom: 1px solid #eee; }
+.log-line.error { color: #a94442; }
+.log-line.warning { color: #8a6d3b; }
+.log-line.info { color: #333; }
+fieldset.box.tabular { margin-bottom: 20px; padding: 15px; }
+fieldset.box.tabular legend { font-weight: bold; padding: 0 10px; }
+.ta-info { display: block; margin-top: 5px; color: #666; font-size: 12px; font-style: italic; }
+
+/* НОВЫЕ СТИЛИ ДЛЯ СВОДКИ ТЕСТИРОВАНИЯ */
+.test-summary {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 15px;
+  padding: 10px;
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  flex-wrap: wrap;
+}
+.test-summary .summary-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: bold;
+  padding: 0;
+  margin: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+}
+.test-summary .summary-item .icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  background-size: 16px 16px;
+  background-repeat: no-repeat;
+  background-position: center;
+  margin: 0 5px 0 0;
+  padding: 0;
+  flex-shrink: 0;
+  line-height: 1;
+  vertical-align: middle;
+}
+.test-summary .summary-item.success { color: #3c763d; }
+.test-summary .summary-item.error { color: #a94442; }
+.test-summary .summary-item.warning { 
+  color: #8a6d3b;
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.test-summary .summary-item.total { color: #333; margin-left: auto; }
+.test-actions {
+  margin-top: 10px;
+  text-align: right;
+}
 </style>

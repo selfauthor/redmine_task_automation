@@ -4,23 +4,23 @@ ru:
 
   # Label для пункта меню
   label_task_automation: "Автоматизация задач"
-  
+
   task_automation:
     # Заголовок страницы настроек
     settings_title: "Настройки автоматизации задач"
-    
+
     # Секции настроек
     settings:
       section_main: "Основные настройки"
       section_actions: "Действия"
       section_test_results: "Результаты тестирования"
       section_last_run: "Последний запуск (журнал)"
-      
+
       select_project: "-- Выберите проект --"
       select_user: "-- Выберите пользователя --"
       select_tracker: "-- Выберите трекер --"
       run_now_hint: "Запустит обработку всех задач-шаблонов немедленно"
-      
+
       source_project_id: "Проект с шаблонами задач"
       source_project_hint: "ID проекта, в котором хранятся задачи-шаблоны"
       author_id: "Автор создаваемых задач"
@@ -29,7 +29,7 @@ ru:
       tracker_hint: "ID трекера для создаваемых основных задач"
       error_notification_email: "Email для уведомлений об ошибках"
       email_hint: "Адрес электронной почты для получения отчётов об ошибках"
-    
+
     # Кнопки
     buttons:
       save: "Сохранить"
@@ -38,7 +38,8 @@ ru:
       test_hint: "Проверяет корректность настроек: наличие проекта, пользователя, трекера и всех необходимых кастомных полей"
       run_now: "Запустить сейчас"
       run_now_hint: "Запускает немедленную обработку всех задач-шаблонов. Создаёт новые задачи на основе шаблонов, у которых подошла дата выполнения"
-    
+      clear_test_results: "Очистить результаты тестирования"
+
     # Сообщения flash
     flash:
       settings_saved: "Настройки успешно сохранены"
@@ -46,14 +47,26 @@ ru:
       run_success: "Обработка завершена успешно. Создано %{issues} задач и %{subtasks} подзадач"
       run_with_errors: "Обработка завершена с ошибками. Создано %{issues} задач, ошибок: %{errors}"
       run_error: "Критическая ошибка при запуске: %{error}"
-    
+      test_results_cleared: "Результаты тестирования очищены"
+
     # Подтверждения действий
     confirm:
       test: "Вы уверены, что хотите протестировать настройки?"
       run_now: "Вы уверены, что хотите запустить обработку задач вручную? Это может занять некоторое время."
-    
+
     # Тестирование
     test:
+      tracker_in_project: "Трекер доступен в проекте-источнике"
+      tracker_not_in_project: "Трекер НЕ доступен в проекте-источнике"
+      author_has_permissions: "Пользователь имеет права на создание задач в проекте"
+      fields_available_for_tracker: "Все необходимые поля доступны для выбранного трекера"
+      fields_not_available_for_tracker: "Поля недоступны для трекера: %{fields}"
+      custom_field_types_correct: "Типы всех кастомных полей корректны"
+      custom_field_type_invalid: "Поле '%{field}': ожидается тип '%{expected}', фактически '%{actual}'"
+      summary_success: "Успешно: %{count}"
+      summary_error: "Ошибки: %{count}"
+      summary_warning: "Предупреждения: %{count}"
+      summary_total: "Всего проверок: %{count}"
       status: "Статус"
       message: "Сообщение"
       project_found: "Проект найден: %{name}"
@@ -72,7 +85,7 @@ ru:
       custom_fields_missing: "Отсутствуют поля: %{fields}"
       field_not_found_short: "не найдено"
       general_error: "Ошибка тестирования: %{error}"
-    
+
     # Rake-задачи
     rake:
       process_start: "=== Запуск обработки задач-шаблонов ==="
@@ -97,14 +110,14 @@ ru:
       log_not_found: "Файл журнала не найден"
       log_read_error: "Ошибка чтения журнала: %{error}"
       plugin_status: "=== Статус плагина ==="
-    
+
     # Статусы
     status:
       success: "Успешно"
       error: "Ошибка"
       warning: "Предупреждение"
       info: "Информация"
-    
+
     # Журнал
     log:
       empty: "Журнал пуст"
