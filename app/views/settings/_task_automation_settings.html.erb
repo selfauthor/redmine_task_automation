@@ -37,6 +37,15 @@
         class: 'settings-select' %>
     <span class="ta-info"><%= I18n.t('task_automation.settings.tracker_hint') %></span>
   </p>
+
+  <p>
+    <%= label_tag 'settings[subtask_tracker_id]', I18n.t('task_automation.settings.subtask_tracker_id') %>
+    <%= select_tag 'settings[subtask_tracker_id]',
+        options_from_collection_for_select(@trackers, 'id', 'name', @settings['subtask_tracker_id']),
+       include_blank: I18n.t('task_automation.settings.select_tracker'),
+        class: 'settings-select' %>
+    <span class="ta-info"><%= I18n.t('task_automation.settings.subtask_tracker_hint') %></span>
+  </p>
   
   <p>
     <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %>
@@ -128,13 +137,12 @@
     </tbody>
   </table>
   
-  <%# Кнопка очистки результатов %>
-  <p class="test-actions">
-    <%= link_to I18n.t('task_automation.buttons.clear_test_results'),
-        { controller: 'settings', action: 'plugin', id: 'redmine_task_automation', clear_test: '1' },
-        method: :get,
-        class: 'button-neutral' %>
-  </p>
+<%# Кнопка очистки результатов %>
+<p class="test-actions">
+<%= link_to I18n.t('task_automation.buttons.clear_test_results'),
+task_automation_clear_test_path,
+class: 'button-neutral' %>
+</p>
 </fieldset>
 <% end %>
 
@@ -253,6 +261,14 @@ fieldset.box.tabular legend { font-weight: bold; padding: 0 10px; }
   border: none !important;
   box-shadow: none !important;
 }
+.log-preview .log-line.warning {
+  background: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  text-align: left;
+  margin-bottom: 0px;
+}
+
 .test-summary .summary-item.total { color: #333; margin-left: auto; }
 .test-actions {
   margin-top: 10px;

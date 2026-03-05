@@ -472,6 +472,22 @@ module TaskAutomation
         @errors << I18n.t('task_automation.log.subtask_tracker_not_found')
         return nil
       end
+
+      # ==========================================================================
+      # Соответствие трекера подзадачи настройкам
+      # ==========================================================================
+      if @settings[:subtask_tracker_id].present? && @settings[:subtask_tracker_id].to_i > 0
+        unless subtask_tracker.id == @settings[:subtask_tracker_id].to_i
+          TaskAutomation::Service.log_message('warning',
+            I18n.t('task_automation.log.subtask_tracker_mismatch', 
+                   expected: @settings[:subtask_tracker_id],
+                   actual: subtask_tracker.id),
+            subtask_template.id)
+          @errors << I18n.t('task_automation.log.subtask_tracker_mismatch', 
+                           expected: @settings[:subtask_tracker_id],
+                           actual: subtask_tracker.id)
+        end
+      end
       
       subtask.tracker = subtask_tracker
       subtask.parent_issue = parent_issue

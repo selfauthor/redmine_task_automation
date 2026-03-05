@@ -30,6 +30,9 @@ ru:
       error_notification_email: "Email для уведомлений об ошибках"
       email_hint: "Адрес электронной почты для получения отчётов об ошибках"
 
+      subtask_tracker_id: "Трекер подзадач"
+      subtask_tracker_hint: "ID трекера, который будет использоваться для создаваемых подзадач"
+
     # Кнопки
     buttons:
       save: "Сохранить"
@@ -49,6 +52,19 @@ ru:
       run_error: "Критическая ошибка при запуске: %{error}"
       test_results_cleared: "Результаты тестирования очищены"
 
+    # Сообщения валидации
+    validation:
+      source_project_required: "Проект с шаблонами задач обязателен для заполнения"
+      source_project_not_found: "Указанный проект с шаблонами не найден"
+      author_required: "Автор создаваемых задач обязателен для заполнения"
+      author_not_found: "Указанный автор не найден"
+      tracker_required: "Трекер основных задач обязателен для заполнения"
+      tracker_not_found: "Указанный трекер основных задач не найден"
+      subtask_tracker_required: "Трекер подзадач обязателен для заполнения"
+      subtask_tracker_not_found: "Указанный трекер подзадач не найден"
+      email_invalid: "Некорректный формат email адреса"
+      date_field_not_found: "Кастомное поле 'Дата следующего выполнения' не найдено"
+
     # Подтверждения действий
     confirm:
       test: "Вы уверены, что хотите протестировать настройки?"
@@ -58,7 +74,7 @@ ru:
     test:
       tracker_in_project: "Трекер доступен в проекте-источнике"
       tracker_not_in_project: "Трекер НЕ доступен в проекте-источнике"
-      author_has_permissions: "Пользователь имеет права на создание задач в проекте"
+      author_has_permissions: "Пользователь имеет права на чтение и редактирование задач"
       fields_available_for_tracker: "Все необходимые поля доступны для выбранного трекера"
       fields_not_available_for_tracker: "Поля недоступны для трекера: %{fields}"
       custom_field_types_correct: "Типы всех кастомных полей корректны"
@@ -85,6 +101,19 @@ ru:
       custom_fields_missing: "Отсутствуют поля: %{fields}"
       field_not_found_short: "не найдено"
       general_error: "Ошибка тестирования: %{error}"
+      
+      # Для основных задач
+      main_fields_available: "Все необходимые поля доступны для трекера основных задач"
+      main_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
+      
+      # Для подзадач
+      subtask_tracker_found: "Трекер подзадач найден: %{name}"
+      subtask_tracker_not_found: "Трекер подзадач не найден"
+      subtask_tracker_not_selected: "Трекер подзадач не выбран"
+      subtask_fields_available: "Все необходимые поля доступны для трекера подзадач"
+      subtask_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
+      subtask_field_types_correct: "Типы полей для подзадач корректны"
+      subtask_field_type_invalid: "Некорректный тип поля '%{field}': ожидается %{expected}, фактически %{actual}"
 
     # Rake-задачи
     rake:

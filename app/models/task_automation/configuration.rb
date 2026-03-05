@@ -25,27 +25,44 @@ module TaskAutomation
     FIELD_REPEAT_DAYS = 'Дни повторения'
     FIELD_MONTH = 'Месяц'
     FIELD_SUBTASK_ORDER = 'Порядковый номер'
+    FIELD_PARENT_ISSUE = 'Родительская задача'
     
     # ========================================================================
-    # Массив всех необходимых кастомных полей для валидации
+    # Поля для основных задач
     # ========================================================================
-    REQUIRED_CUSTOM_FIELDS = [
-      FIELD_NEXT_EXECUTION_DATE,
-      FIELD_CREATE_AHEAD_DAYS,
+    MAIN_TASK_FIELDS = [
       FIELD_TARGET_PROJECT,
       FIELD_TARGET_TRACKER,
       FIELD_ASSIGNMENT_GROUP,
       FIELD_WATCHER_GROUPS,
-      FIELD_DURATION_DAYS,
-      FIELD_WORKING_DAYS_ONLY,
       FIELD_INTERVAL_UNIT,
       FIELD_INTERVAL_VALUE,
       FIELD_DAY_NUMBER,
       FIELD_REPEAT_DAYS,
       FIELD_MONTH,
-      FIELD_SUBTASK_ORDER
+      FIELD_CREATE_AHEAD_DAYS,
+      FIELD_DURATION_DAYS,
+      FIELD_NEXT_EXECUTION_DATE,
+      FIELD_WORKING_DAYS_ONLY
     ].freeze
     
+    # ========================================================================
+    # Поля для подзадач
+    # ========================================================================
+    SUBTASK_FIELDS = [
+      FIELD_PARENT_ISSUE,
+      FIELD_TARGET_TRACKER,
+      FIELD_ASSIGNMENT_GROUP,
+      FIELD_SUBTASK_ORDER,
+      FIELD_DURATION_DAYS,
+      FIELD_WORKING_DAYS_ONLY
+    ].freeze
+
+    # ========================================================================
+    # Все необходимые поля (для обратной совместимости)
+    # ========================================================================
+    REQUIRED_CUSTOM_FIELDS = (MAIN_TASK_FIELDS + SUBTASK_FIELDS).uniq.freeze
+
     # ========================================================================
     # Настройки плагина по умолчанию
     # ========================================================================
@@ -53,6 +70,7 @@ module TaskAutomation
       'source_project_id' => '',
       'author_id' => '',
       'tracker_id' => '',
+      'subtask_tracker_id' => '',
       'error_notification_email' => ''
     }.freeze
   end

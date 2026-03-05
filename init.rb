@@ -17,6 +17,7 @@ Redmine::Plugin.register :redmine_task_automation do
       'source_project_id' => '',
       'author_id' => '',
       'tracker_id' => '',
+      'subtask_tracker_id' => '',
       'error_notification_email' => ''
     },
     partial: 'settings/task_automation_settings'
