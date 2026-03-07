@@ -7,35 +7,41 @@ class TaskAutomationSettingsController < ApplicationController
   before_action :require_admin
   before_action :load_settings, only: [:test_run, :test]
 
-  def test_run
-    Rails.logger.info "[TaskAutomation] Запущен ручной запуск обработки задач "
-    begin
-      result = TaskAutomation::Service.process
+def test_run
+  Rails.logger.info "[TaskAutomation] [CONTROLLER] >>> НАЧАЛО test_run"
+  Rails.logger.info "[TaskAutomation] Запущен ручной запуск обработки задач"
+  
+  begin
+    Rails.logger.info "[TaskAutomation] [CONTROLLER] Вызов TaskAutomation::Service.process..."
+    result = TaskAutomation::Service.process
+    Rails.logger.info "[TaskAutomation] [CONTROLLER] Process завершён. result[:success]: #{result[:success]}"
+    
+    if result[:success]
+      message = I18n.t('task_automation.flash.run_success',
+                       issues: result[:created_count],
+                       subtasks: result[:subtasks_count])
+      flash[:notice] = message
+    else
+      message = I18n.t('task_automation.flash.run_with_errors',
+                       issues: result[:created_count],
+                       errors: result[:errors].count)
+      flash[:warning] = message
 
-      if result[:success]
-        message = I18n.t('task_automation.flash.run_success',
-                         issues: result[:created_count],
-                         subtasks: result[:subtasks_count])
-        flash[:notice] = message
-      else
-        message = I18n.t('task_automation.flash.run_with_errors',
-                         issues: result[:created_count],
-                         errors: result[:errors].count)
-        flash[:warning] = message
-
-        result[:errors].each do |error|
-          Rails.logger.error "[TaskAutomation] #{error} "
-        end
+      Rails.logger.info "[TaskAutomation] [CONTROLLER] Ошибок в результате: #{result[:errors].count}"
+      result[:errors].each_with_index do |error, idx|
+        Rails.logger.error "[TaskAutomation] [CONTROLLER] Ошибка ##{idx + 1}: #{error}"
       end
-
-    rescue => e
-      Rails.logger.error "[TaskAutomation] Критическая ошибка при ручном запуске: #{e.message} "
-      Rails.logger.error e.backtrace.join("\n")
-      flash[:error] = I18n.t('task_automation.flash.run_error', error: e.message)
     end
 
-    redirect_to controller: 'settings', action: 'plugin', id: 'redmine_task_automation'
+  rescue => e
+    Rails.logger.error "[TaskAutomation] [CONTROLLER] Критическая ошибка: #{e.class}: #{e.message}"
+    Rails.logger.error "[TaskAutomation] [CONTROLLER] Backtrace: #{e.backtrace.first(10).join("\n")}"
+    flash[:error] = I18n.t('task_automation.flash.run_error', error: e.message)
   end
+
+  Rails.logger.info "[TaskAutomation] [CONTROLLER] <<< КОНЕЦ test_run, редирект"
+  redirect_to controller: 'settings', action: 'plugin', id: 'redmine_task_automation'
+end
 
   def test
     test_results = []

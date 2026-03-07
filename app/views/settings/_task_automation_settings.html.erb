@@ -148,39 +148,63 @@ class: 'button-neutral' %>
 
 <%# Секция: Информация о последнем запуске %>
 <fieldset class="box tabular">
-  <legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
-  
-  <% 
-    @last_log_lines = []
-    if File.exist?(Rails.root.join('log', 'task_automation.log'))
-      begin
-        all_lines = IO.readlines(Rails.root.join('log', 'task_automation.log'))
-        # Находим последнюю секцию тестирования
-        test_start_index = all_lines.rindex { |line| line.include?('=== НАЧАЛО ТЕСТИРОВАНИЯ НАСТРОЕК ===') }
-        test_end_index = all_lines.rindex { |line| line.include?('=== ЗАВЕРШЕНИЕ ТЕСТИРОВАНИЯ НАСТРОЕК ===') }
-
-        if test_start_index && test_end_index && test_end_index > test_start_index
-          @last_log_lines = all_lines[test_start_index..test_end_index]
+<legend><%= I18n.t('task_automation.settings.section_last_run') %></legend>
+<%
+@last_log_lines = []
+log_file = Rails.root.join('log', 'task_automation.log')
+if File.exist?(log_file)
+  begin
+    all_lines = IO.readlines(log_file)
+    selected_lines = []
+    last_time = nil
+    
+    # Идём с конца журнала к началу
+    all_lines.reverse.each do |line|
+      line.strip!
+      next if line.blank?
+      
+      # Извлекаем время из строки журнала [2026-03-06 11:30:50]
+      if line =~ /\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\]/
+        current_time = Time.parse($1)
+        
+        if last_time.nil?
+          # Первая (последняя в журнале) запись
+          selected_lines << line
+          last_time = current_time
         else
-          @last_log_lines = all_lines.last(10)
+          # Проверяем разницу во времени
+          time_diff = (last_time - current_time).abs
+          
+          if time_diff <= 60 # 1 минута = 60 секунд
+            selected_lines << line
+            last_time = current_time
+          else
+            # Разница больше 1 минуты - останавливаемся
+            break
+          end
         end
-      rescue => e
-        Rails.logger.error "[TaskAutomation] Ошибка чтения журнала: #{e.message} "
       end
     end
-  %>
-  
-  <% if @last_log_lines.present? %>
-    <div class="log-preview">
-      <% @last_log_lines.each do |line| %>
-      <div class="log-line <%= line.include?('ERROR') ? 'error' : line.include?('WARN') ? 'warning' : line.include?('ТЕСТИРОВАНИЯ') ? 'info' : 'info' %>">
-        <%= line.strip %>
-      </div>
-      <% end %>
-    </div>
-  <% else %>
-    <p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
-  <% end %>
+    
+    # Переворачиваем обратно, чтобы последняя запись была внизу
+    @last_log_lines = selected_lines.reverse
+  rescue => e
+    Rails.logger.error "[TaskAutomation] #{I18n.t('task_automation.log.read_error', error: e.message)}"
+    @last_log_lines = ["[ERROR] #{I18n.t('task_automation.log.read_error', error: e.message)}"]
+  end
+end
+%>
+<% if @last_log_lines.present? %>
+<div class="log-preview">
+<% @last_log_lines.each do |line| %>
+<div class="log-line <%= line.include?('[ERROR]') ? 'error' : line.include?('[WARN]') ? 'warning' : 'info' %>">
+<%= line.strip %>
+</div>
+<% end %>
+</div>
+<% else %>
+<p class="ta-info"><%= I18n.t('task_automation.log.empty') %></p>
+<% end %>
 </fieldset>
 
 <style>
