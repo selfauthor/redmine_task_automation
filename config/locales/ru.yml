@@ -141,42 +141,67 @@ ru:
       warning: "Предупреждение"
       info: "Информация"
 
-    # Журнал
     log:
-      date_calculation_error: "Ошибка расчета даты: %{error}"
-      email_not_configured: "Не настроен параметр mail_from в настройках Redmine"
-      email_send_failed: "Ошибка отправки email: %{error}"
-      email_sent: "Email с отчётом об ошибках отправлен на %{email}"
-      empty: "Журнал пуст"
-      field_not_available: "Поле '%{field_name}' недоступно для трекера"
-      field_not_found: "Кастомное поле '%{field_name}' не найдено"
-      group_not_found: "Группа назначения не найдена или не имеет прав"
-      invalid_weekday_in_month: "Неверный день недели для месяца"
-      issue_created: "Создана задача #%{issue_id}: %{subject} %{subtasks}"
-      issue_creation_failed: "Не удалось создать задачу"
+      # Проект назначения
+      project_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      project_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      project_not_found: "В поле '%{field_name}' указан несуществующий проект (ID: %{field_value})"
+
+      # Трекер назначения
+      tracker_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      tracker_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      tracker_not_found: "Трекер '%{tracker_name}' не найден в системе"
+      tracker_not_in_project: "Трекер '%{tracker_name}' недоступен в проекте '%{project_name}'"
+
+      # Группа назначения
+      group_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      group_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      group_not_found: "Группа '%{group_name}' не найдена в системе"
+      group_no_permissions: "Группа '%{group_name}' не имеет прав на редактирование задач в проекте"
+
+      # Кастомные поля
+      field_not_found: "Кастомное поле '%{field_name}' не найдено в системе"
+      field_not_available: "Поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
+      required_field_missing: "Обязательное поле '%{field_name}' не заполнено в создаваемой задаче"
+
+      # Создание задачи
+      issue_creation_failed: "Не удалось создать задачу из-за ошибок валидации"
       issue_save_error: "Ошибка сохранения задачи: %{error}"
-      month_without_day: "Месяц указан без числа"
-      multiple_days_invalid_interval: "Нельзя указать несколько дней при интервале больше 1 недели"
-      no_templates_found: "Задачи-шаблоны для обработки не найдены"
+
+      # Подзадачи
+      subtask_processing_failed: "Ошибка обработки подзадач - задача удалена"
+      subtask_tracker_not_found: "Трекер подзадачи не найден в системе"
+      subtask_tracker_mismatch: "Трекер подзадачи не соответствует настройкам (ожидался ID: %{expected}, фактически ID: %{actual})"
+      subtask_save_error: "Ошибка сохранения подзадачи: %{error}"
+      tracker_no_subtasks: "Выбранный трекер не поддерживает подзадачи"
+
+      # Даты
+      date_calculation_error: "Ошибка расчета даты следующего выполнения: %{error}"
+      invalid_weekday_in_month: "Неверный день недели для месяца при расчете даты"
+      month_without_day: "Месяц указан без числа при расчете даты"
+      multiple_days_invalid_interval: "Нельзя указать несколько дней повторения при интервале больше 1 недели"
+
+      # Общие
       processing_started: "Запуск обработки задач-шаблонов"
       processing_template: "Обработка шаблона #%{issue_id}"
-      project_not_found: "Проект назначения не найден"
-      read_error: "Ошибка чтения журнала: %{error}"
-      required_field_missing: "Обязательное поле '%{field_name}' не заполнено"
+      template_processing_error: "Ошибка обработки шаблона: %{error}"
       settings_invalid: "Настройки плагина невалидны"
-      subtask_processing_failed: "Ошибка обработки подзадач"
-      subtask_save_error: "Ошибка сохранения подзадачи: %{error}"
-      subtask_tracker_mismatch: "Трекер подзадачи не соответствует настройкам (ожидался: %{expected}, фактически: %{actual})"
-      subtask_tracker_not_found: "Трекер подзадачи не найден"
-      summary_no_tasks: "Задачи не создавались"
+      no_templates_found: "Задачи-шаблоны для обработки не найдены"
       summary_success: "Обработка завершена. Создано задач: %{issues}, подзадач: %{subtasks}"
-      template_processing_error: "Ошибка обработки шаблона #%{issue_id}: %{error}"
-      tracker_no_subtasks: "Трекер не поддерживает подзадачи"
-      tracker_not_found: "Трекер назначения не найден"
+      summary_no_tasks: "Задачи не создавались"
+      issue_created: "Создана задача #%{issue_id}: %{subject} %{subtasks}"
       with_subtasks: "(подзадач: %{count})"
+
+      # Email
+      email_not_configured: "Не настроен параметр mail_from в настройках Redmine"
+      email_send_failed: "Ошибка отправки email: %{error}"
       email_sent_to_admin: "Email с отчётом об ошибках отправлен администратору %{admin} (%{email})"
       email_send_failed_to_admin: "Ошибка отправки email администратору %{admin}: %{error}"
       email_summary: "Отправка уведомлений завершена. Успешно: %{success}, Ошибок: %{errors}"
+
+      # Журнал
+      empty: "Журнал пуст"
+      read_error: "Ошибка чтения журнала: %{error}"
 
     # Email уведомления
     email:

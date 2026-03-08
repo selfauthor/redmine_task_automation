@@ -1,18 +1,12 @@
-# ============================================================================
+#============================================================================
 # Файл: lib/task_automation/task_processor.rb
 # Назначение: Основной процессор бизнес-логики для автоматизации задач
-# ============================================================================
-
+#============================================================================
 module TaskAutomation
   class TaskProcessor
-    # Явно включаем модуль конфигурации
+    # Явно включаем модуль конфигурации для доступа к константам
     include TaskAutomation::Configuration
 
-    # ============================================================================
-    # Подключение модуля конфигурации для доступа к константам
-    # ============================================================================
-    include TaskAutomation::Configuration
-    
     # ============================================================================
     # Инициализация процессора
     # ============================================================================
@@ -26,7 +20,23 @@ module TaskAutomation
       
       initialize_custom_field_cache
     end
-    
+
+    # ============================================================================
+    # Метод добавления ошибки с полной информацией для логирования и отправки
+    # Формат: [2026-03-08 15:18:33] [ERROR] [Issue #1] Текст ошибки
+    # ============================================================================
+    def add_error(message, issue_id = nil)
+      timestamp = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+      log_entry = "[#{timestamp}] [ERROR] "
+      log_entry += "[Issue ##{issue_id}] " if issue_id
+      log_entry += "#{message} "
+      
+      @errors << log_entry
+      
+      # Также логируем в файл (без дублирования префикса времени)
+      TaskAutomation::Service.log_message('error', message, issue_id)
+    end
+
     # ============================================================================
     # Основной метод обработки всех задач-шаблонов
     # ============================================================================
@@ -49,20 +59,16 @@ module TaskAutomation
         begin
           process_template_issue(template_issue)
         rescue => e
-          TaskAutomation::Service.log_message('error', 
-            I18n.t('task_automation.log.template_processing_error', 
-                   issue_id: template_issue.id, 
-                   error: e.message))
-          @errors << I18n.t('task_automation.log.template_processing_error', 
-                           issue_id: template_issue.id, 
-                           error: e.message)
+          add_error(I18n.t('task_automation.log.template_processing_error', 
+                         issue_id: template_issue.id, 
+                         error: e.message), template_issue.id)
         end
       end
       
       log_summary
       build_result(@errors.empty?)
     end
-    
+
     # ============================================================================
     # Метод проверки валидности настроек плагина
     # ============================================================================
@@ -94,7 +100,7 @@ module TaskAutomation
       
       true
     end
-    
+
     # ============================================================================
     # Метод инициализации кэша ID кастомных полей
     # ============================================================================
@@ -103,7 +109,7 @@ module TaskAutomation
         @custom_field_ids[field_name] = TaskAutomation::Service.get_custom_field_id_by_name(field_name)
       end
     end
-    
+
     # ============================================================================
     # Метод поиска задач-шаблонов для обработки
     # ============================================================================
@@ -129,7 +135,7 @@ module TaskAutomation
         next_date.present? && (next_date.to_date - ahead_days.days) <= today
       end
     end
-    
+
     # ============================================================================
     # Метод обработки отдельной задачи-шаблона
     # ============================================================================
@@ -144,10 +150,7 @@ module TaskAutomation
       target_project = get_target_project(template_issue)
       
       unless target_project
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.project_not_found'),
-          template_issue.id)
-        @errors << I18n.t('task_automation.log.project_not_found')
+        # Ошибка уже добавлена в get_target_project через add_error
         return
       end
       
@@ -155,10 +158,7 @@ module TaskAutomation
       target_tracker = get_target_tracker(template_issue, target_project)
       
       unless target_tracker
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.tracker_not_found'),
-          template_issue.id)
-        @errors << I18n.t('task_automation.log.tracker_not_found')
+        # Ошибка уже добавлена в get_target_tracker через add_error
         return
       end
       
@@ -166,10 +166,8 @@ module TaskAutomation
       assignment_group = get_assignment_group(template_issue)
       
       unless assignment_group && TaskAutomation::Service.group_can_be_assigned?(assignment_group.name, target_project.id)
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.group_not_found'),
-          template_issue.id)
-        @errors << I18n.t('task_automation.log.group_not_found')
+        group_name = template_issue.custom_field_value(@custom_field_ids[FIELD_ASSIGNMENT_GROUP])
+        add_error(I18n.t('task_automation.log.group_not_found', group_name: group_name), template_issue.id)
         return
       end
       
@@ -177,10 +175,7 @@ module TaskAutomation
       target_issue = create_target_issue(template_issue, target_project, target_tracker, assignment_group)
       
       unless target_issue
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.issue_creation_failed'),
-          template_issue.id)
-        @errors << I18n.t('task_automation.log.issue_creation_failed')
+        add_error(I18n.t('task_automation.log.issue_creation_failed'), template_issue.id)
         return
       end
       
@@ -195,10 +190,7 @@ module TaskAutomation
         
         unless success
           target_issue.destroy
-          TaskAutomation::Service.log_message('error',
-            I18n.t('task_automation.log.subtask_processing_failed'),
-            template_issue.id)
-          @errors << I18n.t('task_automation.log.subtask_processing_failed')
+          add_error(I18n.t('task_automation.log.subtask_processing_failed'), template_issue.id)
           return
         end
         
@@ -210,7 +202,7 @@ module TaskAutomation
       
       # Шаг 3.9: Логирование успешного создания задачи
       subtask_message = has_subtasks ? 
-        I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
+         I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
       
       TaskAutomation::Service.log_message('info',
         I18n.t('task_automation.log.issue_created', 
@@ -224,43 +216,81 @@ module TaskAutomation
       # Шаг 3.10: Обновление даты следующего выполнения в шаблоне
       update_next_execution_date(template_issue)
     end
-    
+
     # ============================================================================
-    # Вспомогательные методы (полный код из предыдущей версии)
+    # Вспомогательные методы
     # ============================================================================
     def get_target_project(template_issue)
       project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
-      return nil unless project_field_id.present?
+      
+      unless project_field_id.present?
+        add_error(I18n.t('task_automation.log.project_field_not_configured', field_name: FIELD_TARGET_PROJECT), template_issue.id)
+        return nil
+      end
       
       project_id = template_issue.custom_field_value(project_field_id).to_i
-      return nil unless TaskAutomation::Service.project_exists?(project_id)
+      
+      unless project_id > 0
+        add_error(I18n.t('task_automation.log.project_field_empty', field_name: FIELD_TARGET_PROJECT), template_issue.id)
+        return nil
+      end
+      
+      unless TaskAutomation::Service.project_exists?(project_id)
+        add_error(I18n.t('task_automation.log.project_not_found', field_value: project_id), template_issue.id)
+        return nil
+      end
       
       Project.find(project_id)
     end
-    
+
     def get_target_tracker(template_issue, target_project)
       tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
-      return nil unless tracker_field_id.present?
+      
+      unless tracker_field_id.present?
+        add_error(I18n.t('task_automation.log.tracker_field_not_configured', field_name: FIELD_TARGET_TRACKER), template_issue.id)
+        return nil
+      end
       
       tracker_name = template_issue.custom_field_value(tracker_field_id)
-      return nil unless tracker_name.present?
+      
+      unless tracker_name.present?
+        add_error(I18n.t('task_automation.log.tracker_field_empty', field_name: FIELD_TARGET_TRACKER), template_issue.id)
+        return nil
+      end
       
       tracker = Tracker.find_by(name: tracker_name)
-      return nil unless tracker && target_project.trackers.include?(tracker)
+      
+      unless tracker
+        add_error(I18n.t('task_automation.log.tracker_not_found', tracker_name: tracker_name), template_issue.id)
+        return nil
+      end
+      
+      unless target_project.trackers.include?(tracker)
+        add_error(I18n.t('task_automation.log.tracker_not_in_project', tracker_name: tracker_name, project_name: target_project.name), template_issue.id)
+        return nil
+      end
       
       tracker
     end
-    
+
     def get_assignment_group(template_issue)
       group_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
-      return nil unless group_field_id.present?
+      
+      unless group_field_id.present?
+        add_error(I18n.t('task_automation.log.group_field_not_configured', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
+        return nil
+      end
       
       group_name = template_issue.custom_field_value(group_field_id)
-      return nil unless group_name.present?
+      
+      unless group_name.present?
+        add_error(I18n.t('task_automation.log.group_field_empty', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
+        return nil
+      end
       
       TaskAutomation::Service.get_group_by_name(group_name)
     end
-    
+
     def create_target_issue(template_issue, target_project, target_tracker, assignment_group)
       issue = Issue.new
       issue.project = target_project
@@ -284,12 +314,10 @@ module TaskAutomation
       
       issue
     rescue => e
-      TaskAutomation::Service.log_message('error',
-        I18n.t('task_automation.log.issue_save_error', error: e.message),
-        template_issue.id)
+      add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
       nil
     end
-    
+
     def parse_custom_fields_from_description(description)
       return {} unless description.present?
       
@@ -308,25 +336,20 @@ module TaskAutomation
       
       custom_fields
     end
-    
+
     def set_custom_fields(issue, custom_fields_hash, template_issue_id)
       custom_fields_hash.each do |field_name, field_value|
         field_id = TaskAutomation::Service.get_custom_field_id_by_name(field_name)
         
         unless field_id.present?
-          TaskAutomation::Service.log_message('warning',
-            I18n.t('task_automation.log.field_not_found', field_name: field_name),
-            template_issue_id)
-          @errors << I18n.t('task_automation.log.field_not_found', field_name: field_name)
+          add_error(I18n.t('task_automation.log.field_not_found', field_name: field_name), template_issue_id)
           next
         end
         
         custom_field = CustomField.find_by(id: field_id)
         
         unless custom_field && custom_field.trackers.include?(issue.tracker)
-          TaskAutomation::Service.log_message('warning',
-            I18n.t('task_automation.log.field_not_available', field_name: field_name),
-            template_issue_id)
+          add_error(I18n.t('task_automation.log.field_not_available', field_name: field_name, tracker_name: issue.tracker.name), template_issue_id)
           next
         end
         
@@ -335,20 +358,17 @@ module TaskAutomation
       
       check_required_fields(issue, template_issue_id)
     end
-    
+
     def check_required_fields(issue, template_issue_id)
       issue.tracker.custom_fields.each do |custom_field|
         if custom_field.is_required
           if issue.custom_field_value(custom_field.id).blank?
-            TaskAutomation::Service.log_message('error',
-              I18n.t('task_automation.log.required_field_missing', field_name: custom_field.name),
-              template_issue_id)
-            @errors << I18n.t('task_automation.log.required_field_missing', field_name: custom_field.name)
+            add_error(I18n.t('task_automation.log.required_field_missing', field_name: custom_field.name), template_issue_id)
           end
         end
       end
     end
-    
+
     def copy_attachments(source_issue, target_issue)
       return unless source_issue.attachments.any?
       
@@ -364,7 +384,7 @@ module TaskAutomation
         )
       end
     end
-    
+
     def add_watchers(target_issue, template_issue, assignment_group)
       watcher_field_id = @custom_field_ids[FIELD_WATCHER_GROUPS]
       
@@ -389,16 +409,13 @@ module TaskAutomation
         target_issue.watcher_users << user unless target_issue.watcher_users.include?(user)
       end
     end
-    
+
     def process_subtasks(template_issue, target_issue, target_project, assignment_group)
       subtasks_created = 0
       subtasks = template_issue.children
       
       unless target_issue.tracker.subtask?
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.tracker_no_subtasks'),
-          template_issue.id)
-        @errors << I18n.t('task_automation.log.tracker_no_subtasks')
+        add_error(I18n.t('task_automation.log.tracker_no_subtasks'), template_issue.id)
         return [false, 0]
       end
       
@@ -441,7 +458,7 @@ module TaskAutomation
       
       [true, subtasks_created]
     end
-    
+
     def sort_subtasks_by_order(subtasks)
       order_field_id = @custom_field_ids[FIELD_SUBTASK_ORDER]
       return subtasks.to_a unless order_field_id.present?
@@ -451,14 +468,14 @@ module TaskAutomation
         order_value
       end
     end
-    
+
     def get_subtask_order(subtask)
       order_field_id = @custom_field_ids[FIELD_SUBTASK_ORDER]
       return 0 unless order_field_id.present?
       
       subtask.custom_field_value(order_field_id).to_i
     end
-    
+
     def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date)
       subtask = Issue.new
       subtask.project = target_project
@@ -466,26 +483,16 @@ module TaskAutomation
       subtask_tracker = get_target_tracker(subtask_template, target_project)
       
       unless subtask_tracker
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.subtask_tracker_not_found'),
-          subtask_template.id)
-        @errors << I18n.t('task_automation.log.subtask_tracker_not_found')
+        add_error(I18n.t('task_automation.log.subtask_tracker_not_found'), subtask_template.id)
         return nil
       end
 
-      # ==========================================================================
       # Соответствие трекера подзадачи настройкам
-      # ==========================================================================
       if @settings[:subtask_tracker_id].present? && @settings[:subtask_tracker_id].to_i > 0
         unless subtask_tracker.id == @settings[:subtask_tracker_id].to_i
-          TaskAutomation::Service.log_message('warning',
-            I18n.t('task_automation.log.subtask_tracker_mismatch', 
-                   expected: @settings[:subtask_tracker_id],
-                   actual: subtask_tracker.id),
-            subtask_template.id)
-          @errors << I18n.t('task_automation.log.subtask_tracker_mismatch', 
-                           expected: @settings[:subtask_tracker_id],
-                           actual: subtask_tracker.id)
+          add_error(I18n.t('task_automation.log.subtask_tracker_mismatch', 
+                         expected: @settings[:subtask_tracker_id],
+                         actual: subtask_tracker.id), subtask_template.id)
         end
       end
       
@@ -509,12 +516,10 @@ module TaskAutomation
       
       subtask
     rescue => e
-      TaskAutomation::Service.log_message('error',
-        I18n.t('task_automation.log.subtask_save_error', error: e.message),
-        subtask_template.id)
+      add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
       nil
     end
-    
+
     def calculate_single_issue_dates(issue, template_issue)
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
       working_days_field_id = @custom_field_ids[FIELD_WORKING_DAYS_ONLY]
@@ -537,7 +542,7 @@ module TaskAutomation
       
       issue.save!(notifications: false)
     end
-    
+
     def calculate_subtask_due_date(subtask, subtask_template)
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
       working_days_field_id = @custom_field_ids[FIELD_WORKING_DAYS_ONLY]
@@ -561,7 +566,7 @@ module TaskAutomation
       subtask.save!(notifications: false)
       subtask.due_date
     end
-    
+
     def calculate_parent_due_date(parent_issue, template_issue)
       subtasks = parent_issue.children
       return if subtasks.empty?
@@ -573,7 +578,7 @@ module TaskAutomation
         parent_issue.save!(notifications: false)
       end
     end
-    
+
     def update_next_execution_date(template_issue)
       date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
       unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
@@ -599,7 +604,7 @@ module TaskAutomation
       
       case interval_unit
       when 'год', 'year', 'год'
-        new_date = calculate_yearly_date(current_date, interval_value, 
+         new_date = calculate_yearly_date(current_date, interval_value, 
                                          template_issue, day_number_field_id,
                                          repeat_days_field_id, month_field_id)
       when 'месяц', 'month'
@@ -608,7 +613,7 @@ module TaskAutomation
                                          repeat_days_field_id)
       when 'неделя', 'week'
         new_date = calculate_weekly_date(current_date, interval_value,
-                                        template_issue, repeat_days_field_id)
+                                         template_issue, repeat_days_field_id)
       when 'день', 'day'
         new_date = calculate_daily_date(current_date, interval_value)
       else
@@ -620,7 +625,7 @@ module TaskAutomation
         template_issue.save!(notifications: false)
       end
     end
-    
+
     def calculate_yearly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id, month_field_id)
       begin
         month_field_value = month_field_id.present? ? 
@@ -628,7 +633,7 @@ module TaskAutomation
         day_number = day_number_field_id.present? ? 
                     (template_issue.custom_field_value(day_number_field_id).to_i rescue nil) : nil
         repeat_days = repeat_days_field_id.present? ? 
-                     template_issue.custom_field_value(repeat_days_field_id) : nil
+                      template_issue.custom_field_value(repeat_days_field_id) : nil
         
         if month_field_value.present?
           month_num = month_name_to_number(month_field_value)
@@ -638,17 +643,13 @@ module TaskAutomation
             new_date = find_nth_weekday_in_month(current_date.year + interval, month_num, day_num)
             
             unless new_date
-              TaskAutomation::Service.log_message('error',
-                I18n.t('task_automation.log.invalid_weekday_in_month'),
-                template_issue.id)
+              add_error(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
               return current_date + interval.years
             end
           elsif day_number.present?
             new_date = Date.new(current_date.year + interval, month_num, day_number)
           else
-            TaskAutomation::Service.log_message('error',
-              I18n.t('task_automation.log.month_without_day'),
-              template_issue.id)
+            add_error(I18n.t('task_automation.log.month_without_day'), template_issue.id)
             return current_date + interval.years
           end
         else
@@ -657,13 +658,11 @@ module TaskAutomation
         
         new_date
       rescue => e
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.date_calculation_error', error: e.message),
-          template_issue.id)
+        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date + interval.years
       end
     end
-    
+
     def calculate_monthly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id)
       begin
         day_number = day_number_field_id.present? ? 
@@ -684,9 +683,7 @@ module TaskAutomation
           new_date = find_nth_weekday_in_month(target_year, target_month, day_num)
           
           unless new_date
-            TaskAutomation::Service.log_message('error',
-              I18n.t('task_automation.log.invalid_weekday_in_month'),
-              template_issue.id)
+            add_error(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
             return Date.new(target_year, target_month, -1)
           end
         elsif day_number.present?
@@ -705,17 +702,15 @@ module TaskAutomation
         
         new_date
       rescue => e
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.date_calculation_error', error: e.message),
-          template_issue.id)
+        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date >> interval
       end
     end
-    
+
     def calculate_weekly_date(current_date, interval, template_issue, repeat_days_field_id)
       begin
         repeat_days = repeat_days_field_id.present? ? 
-                     template_issue.custom_field_value(repeat_days_field_id) : nil
+                      template_issue.custom_field_value(repeat_days_field_id) : nil
         
         if repeat_days.blank?
           return current_date + interval.weeks
@@ -724,9 +719,7 @@ module TaskAutomation
         days_list = repeat_days.split(/[;,]/).map(&:strip)
         
         if days_list.length > 1 && interval != 1
-          TaskAutomation::Service.log_message('error',
-            I18n.t('task_automation.log.multiple_days_invalid_interval'),
-            template_issue.id)
+          add_error(I18n.t('task_automation.log.multiple_days_invalid_interval'), template_issue.id)
           return current_date + interval.weeks
         end
         
@@ -748,17 +741,15 @@ module TaskAutomation
         
         new_date
       rescue => e
-        TaskAutomation::Service.log_message('error',
-          I18n.t('task_automation.log.date_calculation_error', error: e.message),
-          template_issue.id)
+        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date + interval.weeks
       end
     end
-    
+
     def calculate_daily_date(current_date, interval)
       current_date + interval.days
     end
-    
+
     def month_name_to_number(month_name)
       months = {
         'янв' => 1, 'январь' => 1, 'jan' => 1, 'january' => 1,
@@ -777,7 +768,7 @@ module TaskAutomation
       
       months[month_name.to_s.downcase.strip] || 1
     end
-    
+
     def repeat_day_name_to_number(day_name)
       days = {
         'пн' => 1, 'пон' => 1, 'понедельник' => 1, 'mon' => 1, 'monday' => 1,
@@ -791,7 +782,7 @@ module TaskAutomation
       
       days[day_name.to_s.downcase.strip] || 1
     end
-    
+
     def find_nth_weekday_in_month(year, month, weekday_num)
       date = Date.new(year, month, 1)
       count = 0
@@ -806,7 +797,7 @@ module TaskAutomation
       
       nil
     end
-    
+
     def log_summary
       if @created_issues_count > 0
         TaskAutomation::Service.log_message('info',
@@ -818,7 +809,7 @@ module TaskAutomation
           I18n.t('task_automation.log.summary_no_tasks'))
       end
     end
-    
+
     def build_result(success)
       {
         success: success,
@@ -829,17 +820,17 @@ module TaskAutomation
         messages: @messages
       }
     end
-    
+
     def has_errors?
       @errors.any?
     end
 
     # ============================================================================
     # Публичный метод для получения списка ошибок текущего запуска
+    # Возвращает массив строк в формате: [2026-03-08 15:18:33] [ERROR] [Issue #1] Текст
     # ============================================================================
     def collected_errors
       @errors
     end
-
   end
 end
