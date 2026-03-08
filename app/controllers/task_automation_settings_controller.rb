@@ -218,13 +218,12 @@ end
       source_project_id: raw_settings['source_project_id'].to_i,
       author_id: raw_settings['author_id'].to_i,
       tracker_id: raw_settings['tracker_id'].to_i,
-      subtask_tracker_id: raw_settings['subtask_tracker_id'].to_i,
-      error_notification_email: raw_settings['error_notification_email'] || ''
+      subtask_tracker_id: raw_settings['subtask_tracker_id'].to_i
     }
   end
 
   # ==========================================================================
-  # НОВЫЙ МЕТОД: Валидация параметров настроек
+  # Валидация параметров настроек
   # ==========================================================================
   def validate_settings_params(params_settings)
     errors = []
@@ -260,13 +259,6 @@ end
     if params_settings[:subtask_tracker_id].present? && params_settings[:subtask_tracker_id].to_i > 0
       unless Tracker.exists?(params_settings[:subtask_tracker_id].to_i)
         errors << I18n.t('task_automation.validation.subtask_tracker_not_found')
-      end
-    end
-
-    # Проверка email
-    if params_settings[:error_notification_email].present?
-      unless params_settings[:error_notification_email].match?(/\A[\w+\-.]+@[a-z\d\-]+(\.[a-z\d\-]+)*\.[a-z]+\z/i)
-        errors << I18n.t('task_automation.validation.email_invalid')
       end
     end
 

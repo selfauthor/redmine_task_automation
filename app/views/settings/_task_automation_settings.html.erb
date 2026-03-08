@@ -47,12 +47,6 @@
     <span class="ta-info"><%= I18n.t('task_automation.settings.subtask_tracker_hint') %></span>
   </p>
   
-  <p>
-    <%= label_tag 'settings[error_notification_email]', I18n.t('task_automation.settings.error_notification_email') %>
-    <%= text_field_tag 'settings[error_notification_email]', @settings['error_notification_email'],
-        class: 'settings-text', size: 50 %>
-    <span class="ta-info"><%= I18n.t('task_automation.settings.email_hint') %></span>
-  </p>
 </fieldset>
 
 <fieldset class="box tabular">

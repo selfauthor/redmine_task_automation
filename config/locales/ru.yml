@@ -27,8 +27,6 @@ ru:
       author_hint: "ID пользователя, который будет указан как автор"
       tracker_id: "Трекер основных задач"
       tracker_hint: "ID трекера для создаваемых основных задач"
-      error_notification_email: "Email для уведомлений об ошибках"
-      email_hint: "Адрес электронной почты для получения отчётов об ошибках"
 
       subtask_tracker_id: "Трекер подзадач"
       subtask_tracker_hint: "ID трекера, который будет использоваться для создаваемых подзадач"
@@ -62,7 +60,6 @@ ru:
       tracker_not_found: "Указанный трекер основных задач не найден"
       subtask_tracker_required: "Трекер подзадач обязателен для заполнения"
       subtask_tracker_not_found: "Указанный трекер подзадач не найден"
-      email_invalid: "Некорректный формат email адреса"
       date_field_not_found: "Кастомное поле 'Дата следующего выполнения' не найдено"
 
     # Подтверждения действий
@@ -94,18 +91,15 @@ ru:
       tracker_found: "Трекер найден: %{name}"
       tracker_not_found: "Трекер не найден"
       tracker_not_selected: "Трекер не выбран"
-      email_valid: "Email корректен"
-      email_invalid: "Некорректный формат email"
-      email_not_set: "Email не указан"
       custom_fields_found: "Все необходимые кастомные поля найдены"
       custom_fields_missing: "Отсутствуют поля: %{fields}"
       field_not_found_short: "не найдено"
       general_error: "Ошибка тестирования: %{error}"
-      
+
       # Для основных задач
       main_fields_available: "Все необходимые поля доступны для трекера основных задач"
       main_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
-      
+
       # Для подзадач
       subtask_tracker_found: "Трекер подзадач найден: %{name}"
       subtask_tracker_not_found: "Трекер подзадач не найден"
@@ -180,6 +174,9 @@ ru:
       tracker_no_subtasks: "Трекер не поддерживает подзадачи"
       tracker_not_found: "Трекер назначения не найден"
       with_subtasks: "(подзадач: %{count})"
+      email_sent_to_admin: "Email с отчётом об ошибках отправлен администратору %{admin} (%{email})"
+      email_send_failed_to_admin: "Ошибка отправки email администратору %{admin}: %{error}"
+      email_summary: "Отправка уведомлений завершена. Успешно: %{success}, Ошибок: %{errors}"
 
     # Email уведомления
     email:

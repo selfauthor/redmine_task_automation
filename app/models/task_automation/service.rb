@@ -17,19 +17,15 @@ module TaskAutomation
     # Основной метод запуска обработки задач
     # ============================================================================
     def self.process
-      # Создание нового экземпляра процессора для обработки
       processor = TaskAutomation::TaskProcessor.new
-      
-      # Запуск процесса обработки и получение результатов
       result = processor.process
       
-      # Отправка уведомлений об ошибках, если они были зафиксированы
-      send_error_notifications if processor.has_errors?
+      # Отправляем только ошибки текущего запуска
+      send_error_notifications(processor.collected_errors) if processor.has_errors?
       
-      # Возврат структурированного результата выполнения
       result
     end
-    
+
     # ============================================================================
     # Метод получения настроек плагина из таблицы settings
     # ============================================================================
@@ -42,7 +38,7 @@ module TaskAutomation
         source_project_id: settings['source_project_id'].to_i,
         author_id: settings['author_id'].to_i,
         tracker_id: settings['tracker_id'].to_i,
-        error_notification_email: settings['error_notification_email']
+        subtask_tracker_id: settings['subtask_tracker_id'].to_i
       }
     end
     
@@ -462,80 +458,61 @@ module TaskAutomation
       File.rename(LOG_FILE_PATH, rotated_file) if File.exist?(LOG_FILE_PATH)
     end
     
-# ============================================================================
-# Метод отправки уведомлений об ошибках на электронную почту
-# ============================================================================
-def self.send_error_notifications
-  Rails.logger.info "[TaskAutomation] [EMAIL] >>> НАЧАЛО send_error_notifications"
-  
-  email = get_settings[:error_notification_email]
-  Rails.logger.info "[TaskAutomation] [EMAIL] Email получателя: #{email.inspect}"
-  
-  return if email.blank?
-  
-  error_messages = read_error_logs
-  Rails.logger.info "[TaskAutomation] [EMAIL] Количество ошибок в логе: #{error_messages.count}"
-  
-  return if error_messages.empty?
-  
-  subject = I18n.t('task_automation.email.error_subject', 
-                   count: error_messages.count,
-                   date: Time.now.strftime('%Y-%m-%d %H:%M'))
-  
-  body = I18n.t('task_automation.email.error_body', 
-                 errors: error_messages.join("\n"))
-  
-  Rails.logger.info "[TaskAutomation] [EMAIL] Тема письма: #{subject}"
-  Rails.logger.info "[TaskAutomation] [EMAIL] Тело письма (первые 100 символов): #{body[0..100]}..."
-
-  begin
-    unless Setting.mail_from.present?
-      Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА: Setting.mail_from не настроен"
-      log_message('error', I18n.t('task_automation.log.email_not_configured'))
-      return
+    # ============================================================================
+    # Метод отправки уведомлений об ошибках на электронную почту
+    # Отправляет только ошибки текущего запуска (не из лога)
+    # ============================================================================
+    def self.send_error_notifications(errors = nil)
+      # Если ошибки переданы явно — используем их
+      # Иначе читаем из лога (для обратной совместимости)
+      error_messages = errors.present? ? errors : read_error_logs
+      
+      return if error_messages.empty?
+      
+      subject = I18n.t('task_automation.email.error_subject', 
+                       count: error_messages.count,
+                       date: Time.now.strftime('%Y-%m-%d %H:%M'))
+      
+      body = I18n.t('task_automation.email.error_body', 
+                     errors: error_messages.join("\n"))
+      
+      # Получаем всех активных администраторов
+      admin_users = User.active.where(admin: true)
+      
+      return if admin_users.empty?
+      
+      success_count = 0
+      error_count = 0
+      
+      admin_users.each do |admin|
+        begin
+          unless Setting.mail_from.present?
+            log_message('error', I18n.t('task_automation.log.email_not_configured'))
+            error_count += 1
+            next
+          end
+          
+          # Отправляем письмо объекту пользователя (не строке с email!)
+          TaskAutomationMailer.error_notification(admin, subject, body).deliver_now
+          success_count += 1
+          
+          log_message('info', I18n.t('task_automation.log.email_sent_to_admin', 
+                                     admin: admin.login, 
+                                     email: admin.mail))
+        rescue => e
+          error_count += 1
+          log_message('error', I18n.t('task_automation.log.email_send_failed_to_admin', 
+                                     admin: admin.login, 
+                                     error: e.message))
+        end
+      end
+      
+      if success_count > 0
+        log_message('info', I18n.t('task_automation.log.email_summary', 
+                                   success: success_count, 
+                                   errors: error_count))
+      end
     end
-    
-    Rails.logger.info "[TaskAutomation] [EMAIL] Setting.mail_from: #{Setting.mail_from}"
-    Rails.logger.info "[TaskAutomation] [EMAIL] Создание объекта письма через TaskAutomationMailer..."
-    
-    mail_object = TaskAutomationMailer.error_notification(email, subject, body)
-    Rails.logger.info "[TaskAutomation] [EMAIL] Объект письма создан: #{mail_object.class}"
-    Rails.logger.info "[TaskAutomation] [EMAIL] mail_object.to: #{mail_object.to.inspect}"
-    Rails.logger.info "[TaskAutomation] [EMAIL] mail_object.from: #{mail_object.from.inspect}"
-    Rails.logger.info "[TaskAutomation] [EMAIL] mail_object.subject: #{mail_object.subject}"
-    
-    Rails.logger.info "[TaskAutomation] [EMAIL] Вызов deliver_now..."
-    
-    # Включаем логирование ошибок доставки
-    mail_object.raise_delivery_errors = true
-    mail_object.deliver_now
-    
-    Rails.logger.info "[TaskAutomation] [EMAIL] <<< deliver_now завершён успешно"
-    log_message('info', I18n.t('task_automation.log.email_sent', email: email))
-    Rails.logger.info "[TaskAutomation] [EMAIL] <<< КОНЕЦ send_error_notifications (успех)"
-    
-  rescue Net::SMTPAuthenticationError => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА SMTP аутентификации: #{e.message}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: "SMTP Authentication failed: #{e.message}"))
-  rescue Net::SMTPServerBusy => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА SMTP сервера: #{e.message}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: "SMTP server busy: #{e.message}"))
-  rescue Net::SMTPSyntaxError => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА синтаксиса SMTP: #{e.message}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: "SMTP syntax error: #{e.message}"))
-  rescue Net::SMTPFatalError => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] КРИТИЧЕСКАЯ ОШИБКА SMTP: #{e.message}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: "SMTP fatal error: #{e.message}"))
-  rescue SocketError => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА соединения: #{e.message}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: "Connection error: #{e.message}"))
-  rescue => e
-    Rails.logger.error "[TaskAutomation] [EMAIL] ОШИБКА при отправке: #{e.class}: #{e.message}"
-    Rails.logger.error "[TaskAutomation] [EMAIL] Backtrace: #{e.backtrace.first(5).join("\n")}"
-    log_message('error', I18n.t('task_automation.log.email_send_failed', error: e.message))
-    Rails.logger.info "[TaskAutomation] [EMAIL] <<< КОНЕЦ send_error_notifications (ошибка)"
-  end
-end
 
     # ============================================================================
     # Метод чтения записей об ошибках из журнала

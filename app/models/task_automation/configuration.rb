@@ -70,8 +70,7 @@ module TaskAutomation
       'source_project_id' => '',
       'author_id' => '',
       'tracker_id' => '',
-      'subtask_tracker_id' => '',
-      'error_notification_email' => ''
+      'subtask_tracker_id' => ''
     }.freeze
   end
 end
