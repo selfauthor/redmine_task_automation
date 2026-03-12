@@ -156,7 +156,7 @@ ru:
       # Группа назначения
       group_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
       group_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
-      group_not_found: "Группа '%{group_name}' не найдена в системе"
+      group_not_found: "Группа '%{group_name}' не найдена в системе или не доступна в проекте"
       group_no_permissions: "Группа '%{group_name}' не имеет прав на редактирование задач в проекте"
 
       # Кастомные поля
@@ -199,11 +199,15 @@ ru:
       email_send_failed_to_admin: "Ошибка отправки email администратору %{admin}: %{error}"
       email_summary: "Отправка уведомлений завершена. Успешно: %{success}, Ошибок: %{errors}"
 
+      # Наблюдатели
+      notifications_sent: "Уведомления о создании задачи #%{issue_id} отправлены наблюдателям"
+      notifications_disabled: "Отправка уведомлений отключена в настройках Redmine"
+      notification_error: "Ошибка отправки уведомлений: %{error}"
+
       # Журнал
       empty: "Журнал пуст"
       read_error: "Ошибка чтения журнала: %{error}"
 
     # Email уведомления
     email:
-      error_subject: "[Redmine] Ошибки автоматизации задач (%{count}) от %{date}"
-      error_body: "Следующие ошибки были зафиксированы при обработке задач:\n\n%{errors}"
+      notification_subject: "[ЕЦСПК] Ошибки и предупреждения автоматизации задач "

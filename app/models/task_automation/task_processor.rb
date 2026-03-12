@@ -2,6 +2,7 @@
 # Файл: lib/task_automation/task_processor.rb
 # Назначение: Основной процессор бизнес-логики для автоматизации задач
 #============================================================================
+
 module TaskAutomation
   class TaskProcessor
     # Явно включаем модуль конфигурации для доступа к константам
@@ -12,6 +13,7 @@ module TaskAutomation
     # ============================================================================
     def initialize
       @errors = []
+      @warnings = []
       @messages = []
       @created_issues_count = 0
       @created_subtasks_count = 0
@@ -19,6 +21,22 @@ module TaskAutomation
       @custom_field_ids = {}
       
       initialize_custom_field_cache
+    end
+
+    # ============================================================================
+    # Метод добавления предупреждения с полной информацией для логирования
+    # Формат: [2026-03-08 15:18:33] [WARNING] [Issue #1] Текст предупреждения
+    # ============================================================================
+    def add_warning(message, issue_id = nil)
+      timestamp = Time.now.strftime('%Y-%m-%d %H:%M:%S')
+      log_entry = "[#{timestamp}] [WARNING] "
+      log_entry += "[Issue ##{issue_id}] " if issue_id
+      log_entry += "#{message} "
+      
+      @warnings << log_entry
+      
+      # Также логируем в файл
+      TaskAutomation::Service.log_message('warning', message, issue_id)
     end
 
     # ============================================================================
@@ -146,75 +164,86 @@ module TaskAutomation
       
       target_issue = nil
       
-      # Шаг 3.1: Проверка проекта назначения
-      target_project = get_target_project(template_issue)
-      
-      unless target_project
-        # Ошибка уже добавлена в get_target_project через add_error
-        return
-      end
-      
-      # Шаг 3.2: Проверка трекера
-      target_tracker = get_target_tracker(template_issue, target_project)
-      
-      unless target_tracker
-        # Ошибка уже добавлена в get_target_tracker через add_error
-        return
-      end
-      
-      # Шаг 3.3: Проверка группы назначения
-      assignment_group = get_assignment_group(template_issue)
-      
-      unless assignment_group && TaskAutomation::Service.group_can_be_assigned?(assignment_group.name, target_project.id)
-        group_name = template_issue.custom_field_value(@custom_field_ids[FIELD_ASSIGNMENT_GROUP])
-        add_error(I18n.t('task_automation.log.group_not_found', group_name: group_name), template_issue.id)
-        return
-      end
-      
-      # Шаг 3.4-3.6: Создание целевой задачи
-      target_issue = create_target_issue(template_issue, target_project, target_tracker, assignment_group)
-      
-      unless target_issue
-        add_error(I18n.t('task_automation.log.issue_creation_failed'), template_issue.id)
-        return
-      end
-      
-      # Шаг 3.7: Добавление наблюдателей
-      add_watchers(target_issue, template_issue, assignment_group)
-      
-      # Шаг 3.8: Обработка подзадач
-      has_subtasks = template_issue.children.any?
-      
-      if has_subtasks
-        success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignment_group)
+      begin
+        # Шаг 3.1: Проверка проекта назначения
+        target_project = get_target_project(template_issue)
+        return unless target_project
         
-        unless success
-          target_issue.destroy
-          add_error(I18n.t('task_automation.log.subtask_processing_failed'), template_issue.id)
-          return
+        # Шаг 3.2: Проверка трекера
+        target_tracker = get_target_tracker(template_issue, target_project)
+        return unless target_tracker
+        
+        # Шаг 3.3: Проверка назначения (пользователь или группа)
+        assignee = get_assignee(template_issue)
+        return unless assignee
+        
+        # Шаг 3.4: Создание целевой задачи
+        target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
+        return unless target_issue
+        
+        Rails.logger.info "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}"
+        
+        # Шаг 3.5: Добавление наблюдателей (ПЕРЕД сохранением дат!)
+        target_issue.reload
+        
+        # Добавление наблюдателей
+        add_watchers(target_issue, template_issue, assignee)
+        
+        # Еще раз reload перед сохранением дат
+        target_issue.reload
+        Rails.logger.info "[TaskAutomation] process_template_issue: Наблюдатели добавлены"
+        
+        # Шаг 3.6: Перезагружаем задачу после добавления наблюдателей
+        target_issue.reload
+        Rails.logger.info "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}"
+        
+        # Шаг 3.7: Обработка подзадач
+        has_subtasks = template_issue.children.any?
+        
+        if has_subtasks
+          success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee)
+          
+          unless success
+            target_issue.destroy
+            add_error(I18n.t('task_automation.log.subtask_processing_failed'), template_issue.id)
+            return
+          end
+          
+          @created_subtasks_count += subtasks_count
+          calculate_parent_due_date(target_issue, template_issue)
+        else
+          calculate_single_issue_dates(target_issue, template_issue)
         end
         
-        @created_subtasks_count += subtasks_count
-        calculate_parent_due_date(target_issue, template_issue)
-      else
-        calculate_single_issue_dates(target_issue, template_issue)
+        # Шаг 3.8: Логирование успешного создания
+        subtask_message = has_subtasks ? 
+           I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
+        
+        TaskAutomation::Service.log_message('info',
+          I18n.t('task_automation.log.issue_created', 
+                 issue_id: target_issue.id,
+                 subject: target_issue.subject,
+                 subtasks: subtask_message),
+          target_issue.id)
+        
+        @created_issues_count += 1
+
+        # Отправка уведомлений наблюдателям и назначенному пользователю о создании задачи
+        send_creation_notifications(target_issue, template_issue.id)
+        
+        # Шаг 3.9: Обновление даты следующего выполнения
+        update_next_execution_date(template_issue)
+        
+        Rails.logger.info "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}"
+        
+      rescue => e
+        Rails.logger.error "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}"
+        Rails.logger.error "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}"
+        
+        add_error(I18n.t('task_automation.log.template_processing_error', 
+                       issue_id: template_issue.id, 
+                       error: e.message), template_issue.id)
       end
-      
-      # Шаг 3.9: Логирование успешного создания задачи
-      subtask_message = has_subtasks ? 
-         I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
-      
-      TaskAutomation::Service.log_message('info',
-        I18n.t('task_automation.log.issue_created', 
-               issue_id: target_issue.id,
-               subject: target_issue.subject,
-               subtasks: subtask_message),
-        target_issue.id)
-      
-      @created_issues_count += 1
-      
-      # Шаг 3.10: Обновление даты следующего выполнения в шаблоне
-      update_next_execution_date(template_issue)
     end
 
     # ============================================================================
@@ -223,24 +252,58 @@ module TaskAutomation
     def get_target_project(template_issue)
       project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
       
+      Rails.logger.debug "[TaskAutomation] get_target_project: FIELD_TARGET_PROJECT='#{FIELD_TARGET_PROJECT}'"
+      Rails.logger.debug "[TaskAutomation] get_target_project: project_field_id=#{project_field_id}"
+      
       unless project_field_id.present?
         add_error(I18n.t('task_automation.log.project_field_not_configured', field_name: FIELD_TARGET_PROJECT), template_issue.id)
         return nil
       end
       
-      project_id = template_issue.custom_field_value(project_field_id).to_i
+      # Получаем ФРАГМЕНТ названия проекта из кастомного поля
+      project_fragment = template_issue.custom_field_value(project_field_id)
       
-      unless project_id > 0
+      Rails.logger.debug "[TaskAutomation] get_target_project: project_fragment='#{project_fragment}' (class: #{project_fragment.class})"
+      
+      unless project_fragment.present?
         add_error(I18n.t('task_automation.log.project_field_empty', field_name: FIELD_TARGET_PROJECT), template_issue.id)
         return nil
       end
+       
+      # Ищем проект по фрагменту названия (первое совпадение)
+      project = find_project_by_fragment(project_fragment.to_s.strip)
       
-      unless TaskAutomation::Service.project_exists?(project_id)
-        add_error(I18n.t('task_automation.log.project_not_found', field_value: project_id), template_issue.id)
+      Rails.logger.debug "[TaskAutomation] get_target_project: found project: #{project ? "id=#{project.id}, name='#{project.name}'" : 'nil'}"
+      
+      unless project
+        add_error(I18n.t('task_automation.log.project_not_found', field_value: project_fragment), template_issue.id)
         return nil
       end
       
-      Project.find(project_id)
+      # Дополнительная проверка: проект не должен быть архивирован
+      if project.archived?
+        Rails.logger.warn "[TaskAutomation] get_target_project: проект '#{project.name}' архивирован"
+        add_error(I18n.t('task_automation.log.project_archived', project_name: project.name), template_issue.id)
+        return nil
+      end
+      
+      project
+    end
+
+    # ============================================================================
+    # Поиск проекта по фрагменту названия
+    # ============================================================================
+    def find_project_by_fragment(fragment)
+      return nil unless fragment.present?
+      
+      # Ищем среди активных проектов первое совпадение по фрагменту
+      Project.active.each do |project|
+        if project.name.downcase.include?(fragment.downcase)
+          return project
+        end
+      end
+      
+      nil
     end
 
     def get_target_tracker(template_issue, target_project)
@@ -273,48 +336,112 @@ module TaskAutomation
       tracker
     end
 
-    def get_assignment_group(template_issue)
-      group_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
+    def get_assignee(template_issue)
+      assignee_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
       
-      unless group_field_id.present?
-        add_error(I18n.t('task_automation.log.group_field_not_configured', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
+      unless assignee_field_id.present?
+        add_error(I18n.t('task_automation.log.assignee_field_not_configured', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
         return nil
       end
       
-      group_name = template_issue.custom_field_value(group_field_id)
+      # Получаем строку для поиска и очищаем от пробелов
+      assignee_search_string = template_issue.custom_field_value(assignee_field_id)
       
-      unless group_name.present?
-        add_error(I18n.t('task_automation.log.group_field_empty', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
+      unless assignee_search_string.present?
+        add_error(I18n.t('task_automation.log.assignee_field_empty', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
         return nil
       end
       
-      TaskAutomation::Service.get_group_by_name(group_name)
+      # Очищаем от начальных и конечных пробелов
+      assignee_search_string = assignee_search_string.to_s.strip 
+      
+      Rails.logger.debug "[TaskAutomation] get_assignee: search_string='#{assignee_search_string}'"
+      
+      # Ищем пользователя или группу по фрагменту имени
+      assignee = find_user_or_group_by_name_fragment(assignee_search_string)
+      
+      unless assignee
+        add_error(I18n.t('task_automation.log.assignee_not_found', search_string: assignee_search_string), template_issue.id)
+        return nil
+      end
+      
+      Rails.logger.debug "[TaskAutomation] get_assignee: found: #{assignee.class} - #{assignee.name}"
+      
+      assignee
     end
 
-    def create_target_issue(template_issue, target_project, target_tracker, assignment_group)
-      issue = Issue.new
-      issue.project = target_project
-      issue.tracker = target_tracker
-      issue.author = User.find(@settings[:author_id])
-      issue.subject = template_issue.subject
-      issue.description = template_issue.description
-      issue.status = target_tracker.default_status
-      issue.priority = IssuePriority.default
-      issue.start_date = Date.today
-      issue.assigned_to = assignment_group
+    # ============================================================================
+    # Поиск пользователя или группы по фрагменту имени
+    # ============================================================================
+    def find_user_or_group_by_name_fragment(search_string)
+      return nil unless search_string.present?
       
-      custom_fields_from_description = parse_custom_fields_from_description(template_issue.description)
-      unless custom_fields_from_description.empty?
-        set_custom_fields(issue, custom_fields_from_description, template_issue.id)
+      search_lower = search_string.downcase
+      
+      # Сначала ищем среди пользователей (firstname + lastname)
+      User.active.each do |user|
+        full_name = "#{user.firstname} #{user.lastname}".strip.downcase
+        login_name = user.login.downcase
+        
+        if full_name.include?(search_lower) || login_name.include?(search_lower)
+          Rails.logger.debug "[TaskAutomation] find_user_or_group_by_name_fragment: found user: #{user.login} (#{full_name})"
+          return user
+        end
       end
       
-      issue.save!(notifications: false)
-      copy_attachments(template_issue, issue)
-      issue.save!(notifications: false)
+      # Если пользователь не найден, ищем среди групп
+      Group.all.each do |group|
+        if group.name.downcase.include?(search_lower)
+          Rails.logger.debug "[TaskAutomation] find_user_or_group_by_name_fragment: found group: #{group.name}"
+          return group
+        end
+      end
+      
+      nil
+    end
+
+    def create_target_issue(template_issue, target_project, target_tracker, assignee)
+      issue = nil
+      
+      ActiveRecord::Base.transaction do
+        issue = Issue.new
+        issue.project = target_project
+        issue.tracker = target_tracker
+        issue.author = User.find(@settings[:author_id])
+        issue.subject = template_issue.subject
+        issue.description = template_issue.description
+        issue.status = target_tracker.default_status
+        issue.priority = IssuePriority.default
+        
+        # ✅ ИЗМЕНЕНО: Дата начала = дате следующего выполнения из шаблона
+        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+        next_date = template_issue.custom_field_value(date_field_id)
+        issue.start_date = next_date.to_date if next_date.present?
+        
+        issue.assigned_to = assignee
+        
+        custom_fields_from_description = parse_custom_fields_from_description(template_issue.description)
+        unless custom_fields_from_description.empty?
+          set_custom_fields(issue, custom_fields_from_description, template_issue.id)
+        end
+        
+        # Первое сохранение
+        issue.save!(notifications: false)
+        Rails.logger.info  "[TaskAutomation] create_target_issue: Задача создана - issue_id=#{issue.id}, lock_version=#{issue.lock_version} "
+        
+        # Копирование вложений (исправленная версия)
+        copy_attachments(template_issue, issue)
+        
+        Rails.logger.info  "[TaskAutomation] create_target_issue: Вложения скопированы - issue_id=#{issue.id} "
+      end
+      
+      # Перезагружаем объект после транзакции
+      issue.reload if issue.persisted?
       
       issue
     rescue => e
       add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
+      Rails.logger.error  "[TaskAutomation] create_target_issue: Ошибка - #{e.class}: #{e.message} "
       nil
     end
 
@@ -372,41 +499,239 @@ module TaskAutomation
     def copy_attachments(source_issue, target_issue)
       return unless source_issue.attachments.any?
       
-      source_issue.attachments.each do |attachment|
-        Attachment.create!(
-          container: target_issue,
-          file: attachment.file,
-          filename: attachment.filename,
-          filesize: attachment.filesize,
-          content_type: attachment.content_type,
-          description: attachment.description,
-          author: User.find(@settings[:author_id])
-        )
+      Rails.logger.info "[TaskAutomation] copy_attachments: Начало - source_id=#{source_issue.id}, target_id=#{target_issue.id}, count=#{source_issue.attachments.count}"
+      
+      source_issue.attachments.each_with_index do |attachment, index|
+        begin
+          Rails.logger.info "[TaskAutomation] copy_attachments: Копирование вложения ##{index + 1} - #{attachment.filename}"
+          
+          # Проверяем существование файла на диске
+          unless File.exist?(attachment.diskfile)
+            Rails.logger.warn "[TaskAutomation] copy_attachments: Файл не найден - #{attachment.diskfile}"
+            next
+          end
+          
+          # Создаем новое вложение
+          new_attachment = Attachment.new(
+            container: target_issue,
+            filename: attachment.filename,
+            filesize: attachment.filesize,
+            content_type: attachment.content_type,
+            description: attachment.description,
+            author: User.find(@settings[:author_id])
+          )
+          
+          # Копируем файл через временный файл
+          require 'tempfile'
+          require 'fileutils'
+          
+          ext = File.extname(attachment.filename)
+          temp_file = Tempfile.new(["attachment_#{Time.now.to_i}_#{index}", ext])
+          temp_file.binmode
+          
+          FileUtils.cp(attachment.diskfile, temp_file.path)
+          
+          # Открываем временный файл для прикрепления
+          temp_file.rewind
+          new_attachment.file = temp_file
+          
+          # Сохраняем вложение
+          new_attachment.save!
+          
+          Rails.logger.info "[TaskAutomation] copy_attachments: Вложение скопировано - #{attachment.filename} (#{attachment.filesize} bytes)"
+          
+          # Закрываем и удаляем временный файл
+          temp_file.close
+          temp_file.unlink
+          
+        rescue => e
+          Rails.logger.error "[TaskAutomation] copy_attachments: Ошибка копирования - #{e.class}: #{e.message}"
+          Rails.logger.error "[TaskAutomation] copy_attachments: Backtrace: #{e.backtrace.first(3).join("\n")}"
+        end
       end
+      
+      Rails.logger.info "[TaskAutomation] copy_attachments: Завершено"
     end
 
-    def add_watchers(target_issue, template_issue, assignment_group)
+    def add_watchers(target_issue, template_issue, assignee)
+      watcher_ids = []
       watcher_field_id = @custom_field_ids[FIELD_WATCHER_GROUPS]
       
       if watcher_field_id.present?
-        watcher_groups = template_issue.custom_field_value(watcher_field_id)
+        watcher_search_string = template_issue.custom_field_value(watcher_field_id)
         
-        if watcher_groups.present?
-          watcher_groups.split(/[;,]/).each do |group_name|
-            group_name = group_name.strip
-            group = TaskAutomation::Service.get_group_by_name(group_name)
+        if watcher_search_string.present?
+          watcher_search_string.to_s.split(',').each do |watcher_fragment|
+            watcher_fragment = watcher_fragment.strip
+            next if watcher_fragment.blank?
             
-            if group
-              group.users.each do |user|
-                target_issue.watcher_users << user unless target_issue.watcher_users.include?(user)
+            watcher = find_user_or_group_by_name_fragment(watcher_fragment)
+            
+            if watcher
+              if watcher.is_a?(Group)
+                watcher.users.each do |user|
+                  watcher_ids << user.id if user.active?
+                end
+              else
+                watcher_ids << watcher.id if watcher.active?
               end
+            else
+              add_warning(I18n.t('task_automation.log.watcher_not_found', 
+                               search_string: watcher_fragment), template_issue.id)
             end
           end
         end
       end
       
-      assignment_group.users.each do |user|
-        target_issue.watcher_users << user unless target_issue.watcher_users.include?(user)
+      # Добавляем назначенного пользователя/группу как наблюдателя
+      if assignee.is_a?(User)
+        watcher_ids << assignee.id if assignee.active?
+      elsif assignee.is_a?(Group)
+        assignee.users.each do |user|
+          watcher_ids << user.id if user.active?
+        end
+      end
+      
+      # ✅ ИСПОЛЬЗУЕМ watcher_user_ids= вместо прямого создания Watcher
+      if watcher_ids.any?
+        # Объединяем с существующими наблюдателями
+        existing_watcher_ids = target_issue.watcher_user_ids
+        target_issue.watcher_user_ids = (existing_watcher_ids + watcher_ids).uniq
+        
+        # Сохраняем изменения в наблюдателях
+        target_issue.save!(notifications: false)
+        
+        Rails.logger.debug "[TaskAutomation] add_watchers: добавлено #{watcher_ids.count} наблюдателей"
+      end
+    end
+
+    # ============================================================================
+    # Добавление наблюдателя без дублирования (используем Watcher.create!)
+    # ============================================================================
+    def add_watcher_if_not_exists(issue, user)
+      # Проверяем, не является ли пользователь уже наблюдателем
+      unless issue.watcher_users.include?(user)
+         # Используем Watcher.create! для надёжного создания записи
+        begin
+          Watcher.create!(
+            watchable: issue,
+            user: user
+          )
+          Rails.logger.debug "[TaskAutomation] add_watcher_if_not_exists: создан Watcher для user=#{user.login}, issue=#{issue.id}"
+        rescue => e
+          Rails.logger.warn "[TaskAutomation] add_watcher_if_not_exists: ошибка создания Watcher - #{e.message}"
+        end
+      end
+    end
+
+    # ============================================================================
+    # Расчет дат для задачи без подзадач
+    # ============================================================================
+    def calculate_single_issue_dates(issue, template_issue)
+      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: НАЧАЛО - issue_id=#{issue.id}, lock_version=#{issue.lock_version} "
+      
+      duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
+      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]  # ✅ ЗАМЕНЕНО
+      
+      duration = duration_field_id.present? ?   
+                  (template_issue.custom_field_value(duration_field_id).to_i rescue 0) : 0
+      
+      # ✅ ПРОВЕРКА: Конец в рабочий день
+      end_on_working_day = end_on_working_day_field_id.present? && 
+                          (template_issue.custom_field_value(end_on_working_day_field_id).to_i == 1)
+      
+      if duration == 0
+        issue.due_date = issue.start_date
+      else
+        issue.due_date = issue.start_date + duration.days
+      end
+      
+      # ✅ КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
+      if end_on_working_day && issue.due_date.present? && !TaskAutomation::Service.working_day?(issue.due_date)
+        Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: due_date выпадает на выходной (#{issue.due_date.strftime('%A')}), сдвигаем НАЗАД "
+        
+        # Сдвигаем due_date НАЗАД к рабочему дню
+        adjusted_due_date = TaskAutomation::Service.shift_to_working_day(issue.due_date, direction: :backward)
+        
+        # Рассчитываем разницу в днях
+        days_shift = (issue.due_date - adjusted_due_date).to_i
+        
+        # ⚠️ Сдвигаем start_date НАЗАД на ту же разницу (для сохранения длительности)
+        issue.start_date = issue.start_date - days_shift.days
+        issue.due_date = adjusted_due_date
+        
+        Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: Сдвинуто - start_date=#{issue.start_date}, due_date=#{issue.due_date} "
+      end
+      
+      # Перезагружаем перед сохранением!
+      #issue.reload
+      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: После reload - lock_version=#{issue.lock_version} "
+      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: ПЕРЕД сохранением - due_date=#{issue.due_date} "
+
+      issue.save!(notifications: false)
+
+      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: ПОСЛЕ сохранения - due_date=#{issue.due_date} "
+    end
+
+    # ============================================================================
+    # Расчет даты завершения подзадачи
+    # ============================================================================
+    def calculate_subtask_due_date(subtask, subtask_template)
+      duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
+      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]  # ✅ ЗАМЕНЕНО
+      
+      duration = duration_field_id.present? ? 
+                 (subtask_template.custom_field_value(duration_field_id).to_i rescue 0) : 0
+      
+      # ✅ ПРОВЕРКА: Конец в рабочий день
+      end_on_working_day = end_on_working_day_field_id.present? && 
+                          (subtask_template.custom_field_value(end_on_working_day_field_id).to_i == 1)
+      
+      if duration == 0
+        subtask.due_date = subtask.start_date
+      else
+        subtask.due_date = subtask.start_date + duration.days
+      end
+      
+      # ✅ КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
+      if end_on_working_day && subtask.due_date.present? && !TaskAutomation::Service.working_day?(subtask.due_date)
+        Rails.logger.info  "[TaskAutomation] calculate_subtask_due_date: due_date выпадает на выходной (#{subtask.due_date.strftime('%A')}), сдвигаем НАЗАД "
+        
+        adjusted_due_date = TaskAutomation::Service.shift_to_working_day(subtask.due_date, direction: :backward)
+        days_shift = (subtask.due_date - adjusted_due_date).to_i
+        
+        subtask.start_date = subtask.start_date - days_shift.days
+        subtask.due_date = adjusted_due_date
+        
+        Rails.logger.info  "[TaskAutomation] calculate_subtask_due_date: Сдвинуто - start_date=#{subtask.start_date}, due_date=#{subtask.due_date} "
+      end
+      
+      # Перезагружаем перед сохранением
+      subtask.reload
+      
+      subtask.save!(notifications: false)
+      subtask.due_date
+    end
+
+    # ============================================================================
+    # Расчет даты завершения родительской задачи
+    # ============================================================================
+    def calculate_parent_due_date(parent_issue, template_issue)
+      Rails.logger.info "[TaskAutomation] calculate_parent_due_date: НАЧАЛО - parent_issue_id=#{parent_issue.id}, lock_version=#{parent_issue.lock_version}"
+      
+      subtasks = parent_issue.children
+      return if subtasks.empty?
+      
+      max_due_date = subtasks.map(&:due_date).compact.max
+      
+      if max_due_date.present?
+        parent_issue.due_date = max_due_date
+        
+        # Перезагружаем перед сохранением
+        parent_issue.reload
+        
+        parent_issue.save!(notifications: false)
+        Rails.logger.info "[TaskAutomation] calculate_parent_due_date: УСПЕШНО - due_date=#{parent_issue.due_date}"
       end
     end
 
@@ -438,7 +763,7 @@ module TaskAutomation
           )
           
           unless target_subtask
-            return [false, 0]
+             return [false, 0]
           end
       
           subtasks_created += 1
@@ -476,7 +801,7 @@ module TaskAutomation
       subtask.custom_field_value(order_field_id).to_i
     end
 
-    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date)
+    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date) 
       subtask = Issue.new
       subtask.project = target_project
       
@@ -510,73 +835,14 @@ module TaskAutomation
         set_custom_fields(subtask, custom_fields, subtask_template.id)
       end
       
+      # Сохраняем подзадачу сразу (наблюдатели для подзадач не добавляются)
       subtask.save!(notifications: false)
       copy_attachments(subtask_template, subtask)
-      subtask.save!(notifications: false)
       
       subtask
     rescue => e
       add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
       nil
-    end
-
-    def calculate_single_issue_dates(issue, template_issue)
-      duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
-      working_days_field_id = @custom_field_ids[FIELD_WORKING_DAYS_ONLY]
-      
-      duration = duration_field_id.present? ? 
-                 (template_issue.custom_field_value(duration_field_id).to_i rescue 0) : 0
-      
-      working_days_only = working_days_field_id.present? && 
-                         (template_issue.custom_field_value(working_days_field_id).to_i == 1)
-      
-      if duration == 0
-        issue.due_date = issue.start_date
-      elsif working_days_only
-        due_date = issue.start_date
-        duration.times { due_date = TaskAutomation::Service.shift_to_working_day(due_date + 1.day, direction: :forward) }
-        issue.due_date = due_date
-      else
-        issue.due_date = issue.start_date + duration.days
-      end
-      
-      issue.save!(notifications: false)
-    end
-
-    def calculate_subtask_due_date(subtask, subtask_template)
-      duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
-      working_days_field_id = @custom_field_ids[FIELD_WORKING_DAYS_ONLY]
-      
-      duration = duration_field_id.present? ? 
-                 (subtask_template.custom_field_value(duration_field_id).to_i rescue 0) : 0
-      
-      working_days_only = working_days_field_id.present? && 
-                         (subtask_template.custom_field_value(working_days_field_id).to_i == 1)
-      
-      if duration == 0
-        subtask.due_date = subtask.start_date
-      elsif working_days_only
-        due_date = subtask.start_date
-        duration.times { due_date = TaskAutomation::Service.shift_to_working_day(due_date + 1.day, direction: :forward) }
-        subtask.due_date = due_date
-      else
-        subtask.due_date = subtask.start_date + duration.days
-      end
-      
-      subtask.save!(notifications: false)
-      subtask.due_date
-    end
-
-    def calculate_parent_due_date(parent_issue, template_issue)
-      subtasks = parent_issue.children
-      return if subtasks.empty?
-      
-      max_due_date = subtasks.map(&:due_date).compact.max
-      
-      if max_due_date.present?
-        parent_issue.due_date = max_due_date
-        parent_issue.save!(notifications: false)
-      end
     end
 
     def update_next_execution_date(template_issue)
@@ -586,6 +852,16 @@ module TaskAutomation
       day_number_field_id = @custom_field_ids[FIELD_DAY_NUMBER]
       repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
       month_field_id = @custom_field_ids[FIELD_MONTH]
+      
+      # ✅ ДОБАВИТЬ ЛОГИРОВАНИЕ ЗНАЧЕНИЙ ПОЛЕЙ
+      Rails.logger.info  "[TaskAutomation] update_next_execution_date: ШАБЛОН ##{template_issue.id} "
+      Rails.logger.info  "[TaskAutomation]   - current_date: #{template_issue.custom_field_value(date_field_id)} "
+      Rails.logger.info  "[TaskAutomation]   - interval_unit: '#{template_issue.custom_field_value(unit_field_id)}' "
+      Rails.logger.info  "[TaskAutomation]   - interval_value: #{template_issue.custom_field_value(interval_field_id).to_i} "
+      Rails.logger.info  "[TaskAutomation]   - day_number: '#{template_issue.custom_field_value(day_number_field_id)}' "
+      Rails.logger.info  "[TaskAutomation]   - repeat_days: '#{template_issue.custom_field_value(repeat_days_field_id)}' "
+      Rails.logger.info  "[TaskAutomation]   - month: '#{template_issue.custom_field_value(month_field_id)}' "
+      # ✅ КОНЕЦ ЛОГИРОВАНИЯ
       
       return unless date_field_id.present?
       
@@ -604,9 +880,9 @@ module TaskAutomation
       
       case interval_unit
       when 'год', 'year', 'год'
-         new_date = calculate_yearly_date(current_date, interval_value, 
-                                         template_issue, day_number_field_id,
-                                         repeat_days_field_id, month_field_id)
+        new_date = calculate_yearly_date(current_date, interval_value, 
+                                        template_issue, day_number_field_id,
+                                        repeat_days_field_id, month_field_id)
       when 'месяц', 'month'
         new_date = calculate_monthly_date(current_date, interval_value,
                                          template_issue, day_number_field_id,
@@ -623,6 +899,8 @@ module TaskAutomation
       if new_date.present?
         template_issue.custom_field_values = { date_field_id => new_date }
         template_issue.save!(notifications: false)
+        
+        Rails.logger.info  "[TaskAutomation] update_next_execution_date: НОВАЯ ДАТА: #{new_date} "
       end
     end
 
@@ -633,7 +911,7 @@ module TaskAutomation
         day_number = day_number_field_id.present? ? 
                     (template_issue.custom_field_value(day_number_field_id).to_i rescue nil) : nil
         repeat_days = repeat_days_field_id.present? ? 
-                      template_issue.custom_field_value(repeat_days_field_id) : nil
+                       template_issue.custom_field_value(repeat_days_field_id) : nil
         
         if month_field_value.present?
           month_num = month_name_to_number(month_field_value)
@@ -641,7 +919,7 @@ module TaskAutomation
           if repeat_days.present?
             day_num = repeat_day_name_to_number(repeat_days)
             new_date = find_nth_weekday_in_month(current_date.year + interval, month_num, day_num)
-            
+             
             unless new_date
               add_error(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
               return current_date + interval.years
@@ -665,11 +943,32 @@ module TaskAutomation
 
     def calculate_monthly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id)
       begin
-        day_number = day_number_field_id.present? ? 
-                    (template_issue.custom_field_value(day_number_field_id).to_i rescue nil) : nil
-        repeat_days = repeat_days_field_id.present? ? 
-                     template_issue.custom_field_value(repeat_days_field_id) : nil
+        # Получаем сырые значения из кастомных полей
+        day_number_raw = day_number_field_id.present? ? 
+                        template_issue.custom_field_value(day_number_field_id) : nil
+        repeat_days_raw = repeat_days_field_id.present? ? 
+                         template_issue.custom_field_value(repeat_days_field_id) : nil
         
+        # ✅ ПРАВИЛЬНАЯ конвертация: пустая строка → nil, не 0!
+        day_number = day_number_raw.present? ? day_number_raw.to_i : nil
+        
+        # ✅ Парсим JSON или оставляем как строку
+        repeat_days = case repeat_days_raw
+                      when Array
+                        repeat_days_raw.join(',')
+                      when String
+                        # Пробуем распарсить JSON
+                        begin
+                          parsed = JSON.parse(repeat_days_raw)
+                          parsed.is_a?(Array) ? parsed.join(',') : repeat_days_raw
+                        rescue JSON::ParserError
+                          repeat_days_raw
+                        end
+                      else
+                        nil
+                      end
+        
+        # Расчет целевого месяца
         target_month = current_date.month + interval
         target_year = current_date.year
         
@@ -678,29 +977,46 @@ module TaskAutomation
           target_year += 1
         end
         
-        if repeat_days.present?
+        # ✅ СЛУЧАЙ 1: Поля не заполнены → просто добавляем интервал
+        # 10 марта → 10 апреля
+        if day_number.blank? && repeat_days.blank?
+          max_day = Date.new(target_year, target_month, -1).day
+          target_day = [current_date.day, max_day].min
+          return Date.new(target_year, target_month, target_day)
+        end
+        
+        # ✅ СЛУЧАЙ 2: "Первый понедельник" (число=1 + дни повторения)
+        if day_number == 1 && repeat_days.present?
           day_num = repeat_day_name_to_number(repeat_days)
           new_date = find_nth_weekday_in_month(target_year, target_month, day_num)
-          
-          unless new_date
-            add_error(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
-            return Date.new(target_year, target_month, -1)
-          end
-        elsif day_number.present?
+          return new_date if new_date
+        end
+        
+        # ✅ СЛУЧАЙ 3: Конкретное число месяца (ОСНОВНОЙ СЛУЧАЙ)
+        if day_number.present? && day_number > 0
           max_day = Date.new(target_year, target_month, -1).day
           
-          if day_number == 0
-            new_date = Date.new(target_year, target_month, -1)
-          elsif day_number > max_day
+          # Если числа нет в месяце → берем последнее число
+          if day_number > max_day
             new_date = Date.new(target_year, target_month, max_day)
           else
             new_date = Date.new(target_year, target_month, day_number)
           end
-        else
-          new_date = current_date >> interval
+          
+          # ⚠️ "Дни повторения" НЕ влияют на расчет следующей даты!
+          return new_date
         end
         
-        new_date
+        # ✅ СЛУЧАЙ 4: Только дни повторения без числа
+        if repeat_days.present?
+          day_num = repeat_day_name_to_number(repeat_days)
+          new_date = find_nth_weekday_in_month(target_year, target_month, day_num)
+          return new_date if new_date
+        end
+        
+        # Запасной вариант
+        current_date >> interval
+        
       rescue => e
         add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date >> interval
@@ -710,7 +1026,7 @@ module TaskAutomation
     def calculate_weekly_date(current_date, interval, template_issue, repeat_days_field_id)
       begin
         repeat_days = repeat_days_field_id.present? ? 
-                      template_issue.custom_field_value(repeat_days_field_id) : nil
+                       template_issue.custom_field_value(repeat_days_field_id) : nil
         
         if repeat_days.blank?
           return current_date + interval.weeks
@@ -810,6 +1126,28 @@ module TaskAutomation
       end
     end
 
+    # ============================================================================
+    # Отправка уведомлений о создании задачи наблюдателям и назначенному
+    # ============================================================================
+    def send_creation_notifications(issue, template_issue_id)
+      begin
+        if Setting.notified_events.include?('issue_added')
+          # ✅ ПЕРЕЗАГРУЖАЕМ задачу для обновления кэша ассоциаций
+          issue.reload
+          
+          # ✅ Используем встроенный метод Redmine
+          Mailer.deliver_issue_add(issue)
+          
+          TaskAutomation::Service.log_message('info',
+            I18n.t('task_automation.log.notifications_sent', issue_id: issue.id),
+            issue.id)
+        end
+      rescue => e
+        add_warning(I18n.t('task_automation.log.notification_error', 
+                           error: e.message), template_issue_id)
+      end
+    end
+
     def build_result(success)
       {
         success: success,
@@ -817,8 +1155,23 @@ module TaskAutomation
         created_count: @created_issues_count,
         subtasks_count: @created_subtasks_count,
         errors: @errors,
+        warnings: @warnings,
         messages: @messages
       }
+    end
+
+    # ============================================================================
+    # Публичный метод для получения списка предупреждений текущего запуска
+    # ============================================================================
+    def collected_warnings
+      @warnings
+    end
+
+    # ============================================================================
+    # Проверка наличия предупреждений
+    # ============================================================================
+    def has_warnings?
+      @warnings.any?
     end
 
     def has_errors?
@@ -831,6 +1184,23 @@ module TaskAutomation
     # ============================================================================
     def collected_errors
       @errors
+    end
+
+    # ============================================================================
+    # Публичный метод для получения всех ошибок и предупреждений текущего запуска
+    # Возвращает массив строк в хронологическом порядке (только ERROR и WARNING)
+    # НЕ включает сообщения уровня INFO
+    # ============================================================================
+    def collected_errors_and_warnings
+      # Объединяем ошибки и предупреждения в хронологическом порядке
+      (@errors + @warnings).sort
+    end
+
+    # ============================================================================
+    # Проверка наличия ошибок или предупреждений
+    # ============================================================================
+    def has_errors_or_warnings?
+      @errors.any? || @warnings.any?
     end
   end
 end

@@ -18,7 +18,6 @@ module TaskAutomation
     FIELD_ASSIGNMENT_GROUP = 'Назначение'
     FIELD_WATCHER_GROUPS = 'Наблюдатели'
     FIELD_DURATION_DAYS = 'Срок выполнения'
-    FIELD_WORKING_DAYS_ONLY = 'Только рабочие дни'
     FIELD_INTERVAL_UNIT = 'Единица интервала'
     FIELD_INTERVAL_VALUE = 'Интервал'
     FIELD_DAY_NUMBER = 'Число'
@@ -26,6 +25,7 @@ module TaskAutomation
     FIELD_MONTH = 'Месяц'
     FIELD_SUBTASK_ORDER = 'Порядковый номер'
     FIELD_PARENT_ISSUE = 'Родительская задача'
+    FIELD_END_ON_WORKING_DAY = 'Конец в рабочий день'
     
     # ========================================================================
     # Поля для основных задач
@@ -43,7 +43,7 @@ module TaskAutomation
       FIELD_CREATE_AHEAD_DAYS,
       FIELD_DURATION_DAYS,
       FIELD_NEXT_EXECUTION_DATE,
-      FIELD_WORKING_DAYS_ONLY
+      FIELD_END_ON_WORKING_DAY
     ].freeze
     
     # ========================================================================
@@ -54,8 +54,7 @@ module TaskAutomation
       FIELD_TARGET_TRACKER,
       FIELD_ASSIGNMENT_GROUP,
       FIELD_SUBTASK_ORDER,
-      FIELD_DURATION_DAYS,
-      FIELD_WORKING_DAYS_ONLY
+      FIELD_DURATION_DAYS
     ].freeze
 
     # ========================================================================

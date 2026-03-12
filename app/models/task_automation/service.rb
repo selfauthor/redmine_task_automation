@@ -20,8 +20,8 @@ module TaskAutomation
       processor = TaskAutomation::TaskProcessor.new
       result = processor.process
       
-      # Отправляем только ошибки текущего запуска
-      send_error_notifications(processor.collected_errors) if processor.has_errors?
+      # Отправляем только ошибки и предупреждения текущего запуска
+      send_notifications(processor.collected_errors_and_warnings) if processor.has_errors_or_warnings?
       
       result
     end
@@ -113,7 +113,7 @@ module TaskAutomation
         FIELD_ASSIGNMENT_GROUP => 'string',
         FIELD_WATCHER_GROUPS => 'string',
         FIELD_DURATION_DAYS => 'int',
-        FIELD_WORKING_DAYS_ONLY => 'int',
+        FIELD_END_ON_WORKING_DAY => 'int',
         FIELD_INTERVAL_UNIT => 'string',
         FIELD_INTERVAL_VALUE => 'int',
         FIELD_DAY_NUMBER => 'int',
@@ -238,7 +238,7 @@ module TaskAutomation
         FIELD_ASSIGNMENT_GROUP => 'string',
         FIELD_WATCHER_GROUPS => 'string',
         FIELD_DURATION_DAYS => 'int',
-        FIELD_WORKING_DAYS_ONLY => 'int',
+        FIELD_END_ON_WORKING_DAY => 'int',
         FIELD_INTERVAL_UNIT => 'string',
         FIELD_INTERVAL_VALUE => 'int',
         FIELD_DAY_NUMBER => 'int',
@@ -286,8 +286,7 @@ module TaskAutomation
         FIELD_TARGET_TRACKER => 'string',
         FIELD_ASSIGNMENT_GROUP => 'string',
         FIELD_SUBTASK_ORDER => 'int',
-        FIELD_DURATION_DAYS => 'int',
-        FIELD_WORKING_DAYS_ONLY => 'int'
+        FIELD_DURATION_DAYS => 'int'
       }
       
       field_type_mapping.each do |field_name, expected_type|
@@ -459,22 +458,42 @@ module TaskAutomation
     end
     
     # ============================================================================
-    # Метод отправки уведомлений об ошибках на электронную почту
-    # Отправляет только ошибки текущего запуска (не из лога)
+    # Метод отправки уведомлений об ошибках и предупреждениях на электронную почту
+    # Отправляет только ошибки и предупреждения текущего запуска в хронологическом порядке
+    # НЕ отправляет сообщения уровня info
     # ============================================================================
-    def self.send_error_notifications(errors = nil)
-      # Если ошибки переданы явно — используем их
+    def self.send_notifications(logs = nil)
+      # Если логи переданы явно — используем их
       # Иначе читаем из лога (для обратной совместимости)
-      error_messages = errors.present? ? errors : read_error_logs
+      if logs.present?
+        # Используем переданные данные текущего запуска (только ошибки и предупреждения)
+        log_messages = logs
+      else
+        # Читаем из лога (только ошибки и предупреждения, без info)
+        log_messages = read_errors_and_warnings
+      end
       
-      return if error_messages.empty?
+      # Если нет сообщений — не отправляем
+      return if log_messages.empty?
       
-      subject = I18n.t('task_automation.email.error_subject', 
-                       count: error_messages.count,
+      # Подсчитываем количество ошибок и предупреждений для темы
+      error_count = log_messages.count { |m| m.include?('[ERROR]') }
+      warning_count = log_messages.count { |m| m.include?('[WARNING]') }
+      
+      # Если нет ни ошибок, ни предупреждений — не отправляем
+      return if error_count == 0 && warning_count == 0
+      
+      # Формируем тему письма
+      subject_parts = []
+      subject_parts << "#{error_count} ошибок" if error_count > 0
+      subject_parts << "#{warning_count} предупреждений" if warning_count > 0
+      
+      subject = I18n.t('task_automation.email.notification_subject', 
+                       details: subject_parts.join(', '),
                        date: Time.now.strftime('%Y-%m-%d %H:%M'))
       
-      body = I18n.t('task_automation.email.error_body', 
-                     errors: error_messages.join("\n"))
+      # Формируем тело письма — все сообщения в хронологическом порядке
+      body = log_messages.join("\n")
       
       # Получаем всех активных администраторов
       admin_users = User.active.where(admin: true)
@@ -482,25 +501,25 @@ module TaskAutomation
       return if admin_users.empty?
       
       success_count = 0
-      error_count = 0
+      error_count_send = 0
       
       admin_users.each do |admin|
         begin
           unless Setting.mail_from.present?
             log_message('error', I18n.t('task_automation.log.email_not_configured'))
-            error_count += 1
+            error_count_send += 1 
             next
           end
           
           # Отправляем письмо объекту пользователя (не строке с email!)
-          TaskAutomationMailer.error_notification(admin, subject, body).deliver_now
+          TaskAutomationMailer.notification(admin, subject, body).deliver_now
           success_count += 1
           
           log_message('info', I18n.t('task_automation.log.email_sent_to_admin', 
                                      admin: admin.login, 
                                      email: admin.mail))
         rescue => e
-          error_count += 1
+          error_count_send += 1
           log_message('error', I18n.t('task_automation.log.email_send_failed_to_admin', 
                                      admin: admin.login, 
                                      error: e.message))
@@ -510,29 +529,35 @@ module TaskAutomation
       if success_count > 0
         log_message('info', I18n.t('task_automation.log.email_summary', 
                                    success: success_count, 
-                                   errors: error_count))
+                                   errors: error_count_send))
       end
     end
 
     # ============================================================================
-    # Метод чтения записей об ошибках из журнала
+    # Метод чтения записей об ошибках и предупреждениях из журнала
+    # Возвращает только записи [ERROR] и [WARNING] за сегодня в хронологическом порядке
+    # НЕ возвращает сообщения уровня [INFO]
     # ============================================================================
-    def self.read_error_logs
+    def self.read_errors_and_warnings
       return [] unless File.exist?(LOG_FILE_PATH)
       
-      errors = []
+      logs = []
       today = Date.today.strftime('%Y-%m-%d')
       
       File.foreach(LOG_FILE_PATH) do |line|
-        if line.include?('[ERROR]') && line.start_with?("[#{today}")
-          error_message = line.split('[ERROR]').last&.strip
-          errors << error_message if error_message.present?
+        # Проверяем, что строка начинается с сегодняшней даты
+        if line.start_with?("[#{today} ")
+          # Проверяем наличие [ERROR] или [WARNING] (но не [INFO])
+          if (line.include?('[ERROR]') || line.include?('[WARNING]')) && !line.include?('[INFO]')
+            logs << line.strip
+          end
         end
       end
       
-      errors
+      # Строки уже в хронологическом порядке (порядок записи в файл)
+      logs
     end
-    
+
     # ============================================================================
     # Метод проверки существования проекта по ID
     # ============================================================================
@@ -561,18 +586,46 @@ module TaskAutomation
     # Метод проверки, можно ли группе назначать задачи в проекте
     # ============================================================================
     def self.group_can_be_assigned?(group_name, project_id)
+      # --- Логирование начала проверки ---
+      Rails.logger.info "[TaskAutomation] Проверка назначения группы: group_name='#{group_name}', project_id=#{project_id}"
+      
+      # --- Шаг 1: Поиск группы ---
       group = Group.find_by(name: group_name)
-      return false unless group
+      if group.nil?
+        Rails.logger.warn "[TaskAutomation] Группа не найдена: name='#{group_name}'"
+        return false
+      end
+      Rails.logger.debug "[TaskAutomation] Группа найдена: id=#{group.id}, name='#{group.name}'"
       
+      # --- Шаг 2: Поиск проекта ---
       project = Project.find_by(id: project_id)
-      return false unless project
+      if project.nil?
+        Rails.logger.warn "[TaskAutomation] Проект не найден: id=#{project_id}"
+        return false
+      end
+      Rails.logger.debug "[TaskAutomation] Проект найден: id=#{project.id}, identifier='#{project.identifier}'"
       
+      # --- Шаг 3: Поиск связи проекта и группы (Member) ---
       member = Member.find_by(project: project, principal: group)
-      return false unless member
+      if member.nil?
+        Rails.logger.warn "[TaskAutomation] Группа не является участником проекта: group_id=#{group.id}, project_id=#{project_id}"
+        return false
+      end
+      Rails.logger.debug "[TaskAutomation] Связь найдена: member_id=#{member.id}"
       
-      member.roles.any? { |role| role.permissions.include?(:edit_issues) }
+      # --- Шаг 4: Проверка ролей и прав ---
+      has_permission = member.roles.any? { |role| role.permissions.include?(:edit_issues) }
+      
+      if has_permission
+        Rails.logger.info "[TaskAutomation] Проверка пройдена: группа '#{group_name}' имеет право edit_issues в проекте #{project_id}"
+      else
+        Rails.logger.warn "[TaskAutomation] Проверка не пройдена: у группы '#{group_name}' нет права edit_issues в проекте #{project_id}"
+        Rails.logger.debug "[TaskAutomation] Роли группы в проекте: #{member.roles.map { |r| "#{r.name}(#{r.id})" }.join(', ')}"
+      end
+      
+      return has_permission
     end
-    
+
     # ============================================================================
     # Метод получения группы по имени
     # ============================================================================
