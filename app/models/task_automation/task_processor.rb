@@ -420,19 +420,22 @@ module TaskAutomation
         
         issue.assigned_to = assignee
         
+        # ✅ ОТКЛЮЧАЕМ уведомления перед сохранением
+        issue.notify = false
+        
         custom_fields_from_description = parse_custom_fields_from_description(template_issue.description)
         unless custom_fields_from_description.empty?
           set_custom_fields(issue, custom_fields_from_description, template_issue.id)
         end
         
         # Первое сохранение
-        issue.save!(notifications: false)
-        Rails.logger.info  "[TaskAutomation] create_target_issue: Задача создана - issue_id=#{issue.id}, lock_version=#{issue.lock_version} "
+        issue.save!
+        Rails.logger.info "[TaskAutomation] create_target_issue: Задача создана - issue_id=#{issue.id}, lock_version=#{issue.lock_version}"
         
-        # Копирование вложений (исправленная версия)
+        # Копирование вложений
         copy_attachments(template_issue, issue)
         
-        Rails.logger.info  "[TaskAutomation] create_target_issue: Вложения скопированы - issue_id=#{issue.id} "
+        Rails.logger.info "[TaskAutomation] create_target_issue: Вложения скопированы - issue_id=#{issue.id}"
       end
       
       # Перезагружаем объект после транзакции
@@ -441,7 +444,7 @@ module TaskAutomation
       issue
     rescue => e
       add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
-      Rails.logger.error  "[TaskAutomation] create_target_issue: Ошибка - #{e.class}: #{e.message} "
+      Rails.logger.error "[TaskAutomation] create_target_issue: Ошибка - #{e.class}: #{e.message}"
       nil
     end
 
@@ -568,13 +571,10 @@ module TaskAutomation
             watcher = find_user_or_group_by_name_fragment(watcher_fragment)
             
             if watcher
-              if watcher.is_a?(Group)
-                watcher.users.each do |user|
-                  watcher_ids << user.id if user.active?
-                end
-              else
-                watcher_ids << watcher.id if watcher.active?
-              end
+              # ✅ ИСПРАВЛЕНО: Добавляем ID наблюдателя напрямую (и пользователя, и группу)
+              watcher_ids << watcher.id
+              
+              Rails.logger.debug "[TaskAutomation] add_watchers: добавлен наблюдатель #{watcher.class} - #{watcher.name}"
             else
               add_warning(I18n.t('task_automation.log.watcher_not_found', 
                                search_string: watcher_fragment), template_issue.id)
@@ -583,25 +583,23 @@ module TaskAutomation
         end
       end
       
-      # Добавляем назначенного пользователя/группу как наблюдателя
-      if assignee.is_a?(User)
-        watcher_ids << assignee.id if assignee.active?
-      elsif assignee.is_a?(Group)
-        assignee.users.each do |user|
-          watcher_ids << user.id if user.active?
-        end
-      end
-      
-      # ✅ ИСПОЛЬЗУЕМ watcher_user_ids= вместо прямого создания Watcher
+      # ✅ ИСПОЛЬЗУЕМ watcher_user_ids= для добавления наблюдателей
       if watcher_ids.any?
-        # Объединяем с существующими наблюдателями
+        # Исключаем assignee из watcher_ids на всякий случай
+        assignee_ids = []
+        if assignee.is_a?(User)
+          assignee_ids << assignee.id
+        elsif assignee.is_a?(Group)
+          assignee_ids << assignee.id  # ✅ Добавляем ID группы, а не пользователей
+        end
+        
+        watcher_ids = watcher_ids - assignee_ids
+        
         existing_watcher_ids = target_issue.watcher_user_ids
         target_issue.watcher_user_ids = (existing_watcher_ids + watcher_ids).uniq
-        
-        # Сохраняем изменения в наблюдателях
         target_issue.save!(notifications: false)
         
-        Rails.logger.debug "[TaskAutomation] add_watchers: добавлено #{watcher_ids.count} наблюдателей"
+        Rails.logger.debug "[TaskAutomation] add_watchers: добавлено #{watcher_ids.count} наблюдателей (включая группы)"
       end
     end
 
@@ -1132,10 +1130,21 @@ module TaskAutomation
     def send_creation_notifications(issue, template_issue_id)
       begin
         if Setting.notified_events.include?('issue_added')
-          # ✅ ПЕРЕЗАГРУЖАЕМ задачу для обновления кэша ассоциаций
+          # Перезагружаем задачу для обновления кэша ассоциаций
           issue.reload
           
-          # ✅ Используем встроенный метод Redmine
+          # ✅ ЛОГИРОВАНИЕ: Кто получит уведомления
+          notified_users = issue.notified_users.map(&:login)
+          notified_watchers = issue.notified_watchers.map(&:login)
+          all_recipients = (issue.notified_users | issue.notified_watchers | issue.notified_mentions).map(&:login)
+          
+          Rails.logger.info "[TaskAutomation] send_creation_notifications: issue_id=#{issue.id}"
+          Rails.logger.info "[TaskAutomation]   notified_users: #{notified_users.join(', ')}"
+          Rails.logger.info "[TaskAutomation]   notified_watchers: #{notified_watchers.join(', ')}"
+          Rails.logger.info "[TaskAutomation]   all_recipients (после dedup): #{all_recipients.join(', ')}"
+          Rails.logger.info "[TaskAutomation]   assigned_to: #{issue.assigned_to&.login}"
+          
+          # Используем встроенный метод Redmine
           Mailer.deliver_issue_add(issue)
           
           TaskAutomation::Service.log_message('info',
@@ -1145,6 +1154,7 @@ module TaskAutomation
       rescue => e
         add_warning(I18n.t('task_automation.log.notification_error', 
                            error: e.message), template_issue_id)
+        Rails.logger.error "[TaskAutomation] send_creation_notifications: #{e.class}: #{e.message}"
       end
     end
 
