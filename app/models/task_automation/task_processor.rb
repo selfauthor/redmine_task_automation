@@ -150,7 +150,21 @@ module TaskAutomation
         ahead_days = ahead_days_field_id.present? ? 
                      (issue.custom_field_value(ahead_days_field_id).to_i rescue 0) : 0
         
-        next_date.present? && (next_date.to_date - ahead_days.days) <= today
+        # а) Статус задачи должен быть "открыт" (не закрыт)
+        next if issue.status.is_closed
+        
+        # б) Дата начала: пустая ИЛИ сегодня ИЛИ в прошлом
+        #    Если в будущем → пропускаем
+        next if issue.start_date.present? && issue.start_date > today
+        
+        # в) Дата завершения: пустая ИЛИ сегодня ИЛИ в будущем
+        #    Если в прошлом (просрочена) → пропускаем
+        next if issue.due_date.present? && issue.due_date < today
+        
+        # Проверяем дату следующего выполнения с учётом "Создать заранее"
+        next unless next_date.present?
+        
+        (next_date.to_date - ahead_days.days) <= today
       end
     end
 
@@ -181,7 +195,7 @@ module TaskAutomation
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
         
-        Rails.logger.info "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}"
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version} "
         
         # Шаг 3.5: Добавление наблюдателей (ПЕРЕД сохранением дат!)
         target_issue.reload
@@ -191,11 +205,11 @@ module TaskAutomation
         
         # Еще раз reload перед сохранением дат
         target_issue.reload
-        Rails.logger.info "[TaskAutomation] process_template_issue: Наблюдатели добавлены"
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Наблюдатели добавлены "
         
         # Шаг 3.6: Перезагружаем задачу после добавления наблюдателей
         target_issue.reload
-        Rails.logger.info "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}"
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version} "
         
         # Шаг 3.7: Обработка подзадач
         has_subtasks = template_issue.children.any?
@@ -231,14 +245,19 @@ module TaskAutomation
         # Отправка уведомлений наблюдателям и назначенному пользователю о создании задачи
         send_creation_notifications(target_issue, template_issue.id)
         
-        # Шаг 3.9: Обновление даты следующего выполнения
-        update_next_execution_date(template_issue)
-        
-        Rails.logger.info "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}"
+        # Шаг 3.9: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
+        begin
+          update_next_execution_date(template_issue, target_issue.id)
+        rescue => e
+          # ⚠️ WARNING: Ошибка обновления даты не должна прерывать создание задачи
+          add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
+        end
+
+        Rails.logger.info  "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id} "
         
       rescue => e
-        Rails.logger.error "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}"
-        Rails.logger.error "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}"
+        Rails.logger.error  "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message} "
+        Rails.logger.error  "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")} "
         
         add_error(I18n.t('task_automation.log.template_processing_error', 
                        issue_id: template_issue.id, 
@@ -843,7 +862,7 @@ module TaskAutomation
       nil
     end
 
-    def update_next_execution_date(template_issue)
+    def update_next_execution_date(template_issue, target_issue_id = nil)
       date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
       unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
       interval_field_id = @custom_field_ids[FIELD_INTERVAL_VALUE]
@@ -851,15 +870,13 @@ module TaskAutomation
       repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
       month_field_id = @custom_field_ids[FIELD_MONTH]
       
-      # ✅ ДОБАВИТЬ ЛОГИРОВАНИЕ ЗНАЧЕНИЙ ПОЛЕЙ
-      Rails.logger.info  "[TaskAutomation] update_next_execution_date: ШАБЛОН ##{template_issue.id} "
-      Rails.logger.info  "[TaskAutomation]   - current_date: #{template_issue.custom_field_value(date_field_id)} "
-      Rails.logger.info  "[TaskAutomation]   - interval_unit: '#{template_issue.custom_field_value(unit_field_id)}' "
-      Rails.logger.info  "[TaskAutomation]   - interval_value: #{template_issue.custom_field_value(interval_field_id).to_i} "
-      Rails.logger.info  "[TaskAutomation]   - day_number: '#{template_issue.custom_field_value(day_number_field_id)}' "
-      Rails.logger.info  "[TaskAutomation]   - repeat_days: '#{template_issue.custom_field_value(repeat_days_field_id)}' "
-      Rails.logger.info  "[TaskAutomation]   - month: '#{template_issue.custom_field_value(month_field_id)}' "
-      # ✅ КОНЕЦ ЛОГИРОВАНИЯ
+      Rails.logger.info "[TaskAutomation] update_next_execution_date: ШАБЛОН ##{template_issue.id}"
+      Rails.logger.info "[TaskAutomation]   - current_date: #{template_issue.custom_field_value(date_field_id)}"
+      Rails.logger.info "[TaskAutomation]   - interval_unit: '#{template_issue.custom_field_value(unit_field_id)}'"
+      Rails.logger.info "[TaskAutomation]   - interval_value: #{template_issue.custom_field_value(interval_field_id).to_i}"
+      Rails.logger.info "[TaskAutomation]   - day_number: '#{template_issue.custom_field_value(day_number_field_id)}'"
+      Rails.logger.info "[TaskAutomation]   - repeat_days: '#{template_issue.custom_field_value(repeat_days_field_id)}'"
+      Rails.logger.info "[TaskAutomation]   - month: '#{template_issue.custom_field_value(month_field_id)}'"
       
       return unless date_field_id.present?
       
@@ -867,6 +884,9 @@ module TaskAutomation
       return unless current_date.present?
       
       current_date = current_date.to_date
+      
+      # Сохраняем старое значение для журналирования
+      old_date_value = current_date.dup
       
       interval_unit = unit_field_id.present? ? 
                      template_issue.custom_field_value(unit_field_id) : nil
@@ -877,16 +897,16 @@ module TaskAutomation
       new_date = nil
       
       case interval_unit
-      when 'год', 'year', 'год'
+      when 'год', 'year'
         new_date = calculate_yearly_date(current_date, interval_value, 
                                         template_issue, day_number_field_id,
-                                        repeat_days_field_id, month_field_id)
+                                         repeat_days_field_id, month_field_id)
       when 'месяц', 'month'
         new_date = calculate_monthly_date(current_date, interval_value,
                                          template_issue, day_number_field_id,
                                          repeat_days_field_id)
       when 'неделя', 'week'
-        new_date = calculate_weekly_date(current_date, interval_value,
+        new_date = calculate_weekly_date(current_date, interval_value, 
                                          template_issue, repeat_days_field_id)
       when 'день', 'day'
         new_date = calculate_daily_date(current_date, interval_value)
@@ -896,9 +916,16 @@ module TaskAutomation
       
       if new_date.present?
         template_issue.custom_field_values = { date_field_id => new_date }
-        template_issue.save!(notifications: false)
         
-        Rails.logger.info  "[TaskAutomation] update_next_execution_date: НОВАЯ ДАТА: #{new_date} "
+        Rails.logger.info "[TaskAutomation] update_next_execution_date: НОВАЯ ДАТА: #{new_date}"
+        
+        # Вызываем журналирование ПЕРЕД сохранением
+        if target_issue_id.present?
+          log_task_creation_in_template_history(template_issue, target_issue_id, old_date_value, new_date)
+        else
+          # Если target_issue_id не передан, просто сохраняем без журналирования
+          template_issue.save!(notifications: false)
+        end
       end
     end
 
@@ -908,8 +935,30 @@ module TaskAutomation
                            template_issue.custom_field_value(month_field_id) : nil
         day_number = day_number_field_id.present? ? 
                     (template_issue.custom_field_value(day_number_field_id).to_i rescue nil) : nil
-        repeat_days = repeat_days_field_id.present? ? 
-                       template_issue.custom_field_value(repeat_days_field_id) : nil
+        
+        # ✅ Преобразуем repeat_days из массива в строку
+        repeat_days_raw = repeat_days_field_id.present? ? 
+                         template_issue.custom_field_value(repeat_days_field_id) : nil
+        
+        repeat_days = case repeat_days_raw
+                      when Array
+                        non_empty = repeat_days_raw.compact.reject(&:blank?)
+                        non_empty.empty? ? nil : non_empty.join(',')
+                      when String
+                        begin
+                          parsed = JSON.parse(repeat_days_raw)
+                          if parsed.is_a?(Array)
+                            non_empty = parsed.compact.reject(&:blank?)
+                            non_empty.empty? ? nil : non_empty.join(',')
+                          else
+                            repeat_days_raw.blank? ? nil : repeat_days_raw
+                          end
+                        rescue JSON::ParserError
+                          repeat_days_raw.blank? ? nil : repeat_days_raw
+                        end
+                      else
+                        nil
+                      end
         
         if month_field_value.present?
           month_num = month_name_to_number(month_field_value)
@@ -917,15 +966,15 @@ module TaskAutomation
           if repeat_days.present?
             day_num = repeat_day_name_to_number(repeat_days)
             new_date = find_nth_weekday_in_month(current_date.year + interval, month_num, day_num)
-             
+            
             unless new_date
-              add_error(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
+              add_warning(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
               return current_date + interval.years
             end
           elsif day_number.present?
             new_date = Date.new(current_date.year + interval, month_num, day_number)
           else
-            add_error(I18n.t('task_automation.log.month_without_day'), template_issue.id)
+            add_warning(I18n.t('task_automation.log.month_without_day'), template_issue.id)
             return current_date + interval.years
           end
         else
@@ -934,7 +983,7 @@ module TaskAutomation
         
         new_date
       rescue => e
-        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
+        add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date + interval.years
       end
     end
@@ -953,12 +1002,17 @@ module TaskAutomation
         # ✅ Парсим JSON или оставляем как строку
         repeat_days = case repeat_days_raw
                       when Array
-                        repeat_days_raw.join(',')
+                        non_empty = repeat_days_raw.compact.reject(&:blank?)
+                        non_empty.empty? ? nil : non_empty.join(',')
                       when String
-                        # Пробуем распарсить JSON
                         begin
                           parsed = JSON.parse(repeat_days_raw)
-                          parsed.is_a?(Array) ? parsed.join(',') : repeat_days_raw
+                          if parsed.is_a?(Array)
+                            non_empty = parsed.compact.reject(&:blank?)
+                            non_empty.empty? ? nil : non_empty.join(',')
+                          else
+                            repeat_days_raw
+                          end
                         rescue JSON::ParserError
                           repeat_days_raw
                         end
@@ -1016,46 +1070,95 @@ module TaskAutomation
         current_date >> interval
         
       rescue => e
-        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
+        add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date >> interval
       end
     end
 
     def calculate_weekly_date(current_date, interval, template_issue, repeat_days_field_id)
       begin
-        repeat_days = repeat_days_field_id.present? ? 
-                       template_issue.custom_field_value(repeat_days_field_id) : nil
+        repeat_days_raw = repeat_days_field_id.present? ? 
+                          template_issue.custom_field_value(repeat_days_field_id) : nil
+        
+        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days_raw=#{repeat_days_raw.inspect} (class: #{repeat_days_raw.class}) "
+        
+        # ✅ Преобразуем в строку, если это массив
+        repeat_days = case repeat_days_raw
+                      when Array
+                        # Фильтруем nil и пустые строки перед join
+                        non_empty = repeat_days_raw.compact.reject(&:blank?)
+                        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: non_empty=#{non_empty.inspect} "
+                        non_empty.empty? ? nil : non_empty.join(',')
+                      when String
+                        # Пробуем распарсить JSON
+                        begin
+                          parsed = JSON.parse(repeat_days_raw)
+                          if parsed.is_a?(Array)
+                            non_empty = parsed.compact.reject(&:blank?)
+                            non_empty.empty? ? nil : non_empty.join(',')
+                          else
+                            repeat_days_raw.blank? ? nil : repeat_days_raw
+                          end
+                        rescue JSON::ParserError
+                          repeat_days_raw.blank? ? nil : repeat_days_raw
+                        end
+                      else
+                        nil
+                      end
+        
+        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days после преобразования=#{repeat_days.inspect} "
         
         if repeat_days.blank?
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days blank, возвращаем current_date + interval.weeks "
           return current_date + interval.weeks
         end
         
-        days_list = repeat_days.split(/[;,]/).map(&:strip)
+        days_list = repeat_days.split(/[;,]/).map(&:strip).reject(&:blank?)
+        
+        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: days_list=#{days_list.inspect} "
+        
+        if days_list.empty?
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: days_list empty, возвращаем current_date + interval.weeks "
+          return current_date + interval.weeks
+        end
         
         if days_list.length > 1 && interval != 1
-          add_error(I18n.t('task_automation.log.multiple_days_invalid_interval'), template_issue.id)
+          add_warning(I18n.t('task_automation.log.multiple_days_invalid_interval'), template_issue.id)
           return current_date + interval.weeks
         end
         
         if days_list.length == 1
           day_num = repeat_day_name_to_number(days_list.first)
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: day_num=#{day_num} "
+          
           new_date = current_date + interval.weeks
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date до цикла=#{new_date} (wday=#{new_date.wday}) "
           
           while new_date.wday != day_num
             new_date += 1.day
           end
+          
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date после цикла=#{new_date} "
         else
           weekdays = days_list.map { |d| repeat_day_name_to_number(d) }
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: weekdays=#{weekdays.inspect} "
+          
           new_date = current_date + 1.day
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date до поиска=#{new_date} "
           
           while !weekdays.include?(new_date.wday)
             new_date += 1.day
           end
+          
+          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date после поиска=#{new_date} "
         end
         
+        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: ВОЗВРАЩАЕМ new_date=#{new_date} "
         new_date
       rescue => e
-        add_error(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
+        Rails.logger.error  "[TaskAutomation] calculate_weekly_date: ОШИБКА - #{e.class}: #{e.message} "
+        Rails.logger.error  "[TaskAutomation] calculate_weekly_date: Backtrace: #{e.backtrace.first(5).join("\n")} "
+        add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
         current_date + interval.weeks
       end
     end
@@ -1212,5 +1315,84 @@ module TaskAutomation
     def has_errors_or_warnings?
       @errors.any? || @warnings.any?
     end
+
+    # ============================================================================
+    # Метод журналирования создания задачи в истории шаблона
+    # Создает запись в истории задачи-шаблона о создании целевой задачи
+    # ============================================================================
+    def log_task_creation_in_template_history(template_issue, target_issue_id, old_next_date, new_next_date)
+      begin
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: НАЧАЛО - template_issue_id=#{template_issue.id}"
+        
+        # Получаем пользователя для журналирования
+        user = User.find(@settings[:author_id])
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: user_id=#{user.id}, login=#{user.login}"
+        
+        # Инициализируем журнал для задачи-шаблона
+        template_issue.init_journal(user, "[Task automation] Создана задача ##{target_issue_id}")
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: журнал инициализирован"
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.persisted?=#{template_issue.current_journal.persisted?}"
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.notes='#{template_issue.current_journal.notes}'"
+        
+        # Получаем ID кастомного поля "Дата следующего выполнения"
+        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: date_field_id=#{date_field_id}"
+        
+        unless date_field_id.present?
+          Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: date_field_id не найден"
+          return
+        end
+        
+        # Добавляем деталь изменения кастомного поля
+        journal_detail = JournalDetail.new(
+          property: 'cf',
+          prop_key: date_field_id.to_s,
+          old_value: old_next_date.present? ? format_date(old_next_date.to_date) : nil,
+          value: new_next_date.present? ? format_date(new_next_date.to_date) : nil
+        )
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: journal_detail создан - property=#{journal_detail.property}, prop_key=#{journal_detail.prop_key}, old_value=#{journal_detail.old_value}, value=#{journal_detail.value}"
+        
+        template_issue.current_journal.details << journal_detail
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: detail добавлен в журнал, details.count=#{template_issue.current_journal.details.count}"
+        
+        # Сохраняем задачу - журнал сохранится через callback create_journal
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПЕРЕД сохранением template_issue"
+        
+        template_issue.save!(notifications: false)
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПОСЛЕ сохранения template_issue"
+        
+        # Проверяем, сохранился ли журнал
+        last_journal = template_issue.journals.order(:id => :desc).first
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal_id=#{last_journal&.id}"
+        
+        if last_journal
+          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.notes='#{last_journal.notes}'"
+          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.details.count=#{last_journal.details.count}"
+          last_journal.details.each do |detail|
+            Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history:   detail - property=#{detail.property}, prop_key=#{detail.prop_key}, old_value=#{detail.old_value}, value=#{detail.value}"
+          end
+        end
+        
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: Запись добавлена в историю шаблона ##{template_issue.id}"
+        
+      rescue => e
+        Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: ОШИБКА - #{e.class}: #{e.message}"
+        Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: Backtrace: #{e.backtrace.first(5).join("\n")}"
+      end
+    end
+
+    # ============================================================================
+    # Вспомогательный метод форматирования даты
+    # ============================================================================
+    def format_date(date)
+      return nil unless date.present?
+      date.is_a?(String) ? date : date.strftime('%Y-%m-%d')
+    end
+
   end
 end
