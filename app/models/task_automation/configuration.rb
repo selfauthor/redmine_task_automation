@@ -20,7 +20,7 @@ module TaskAutomation
     FIELD_DURATION_DAYS = 'Срок выполнения'
     FIELD_INTERVAL_UNIT = 'Единица интервала'
     FIELD_INTERVAL_VALUE = 'Интервал'
-    FIELD_DAY_NUMBER = 'Число'
+    FIELD_DAY_NUMBER = 'Номер'
     FIELD_REPEAT_DAYS = 'Дни повторения'
     FIELD_MONTH = 'Месяц'
     FIELD_SUBTASK_ORDER = 'Порядковый номер'
@@ -52,7 +52,6 @@ module TaskAutomation
     SUBTASK_FIELDS = [
       FIELD_PARENT_ISSUE,
       FIELD_TARGET_TRACKER,
-      FIELD_ASSIGNMENT_GROUP,
       FIELD_SUBTASK_ORDER,
       FIELD_DURATION_DAYS
     ].freeze

@@ -638,10 +638,23 @@ module TaskAutomation
     # ============================================================================
     def self.working_day?(date)
       wday = date.wday
-      working_days = Setting.working_days || [1, 2, 3, 4, 5]
-      working_days.include?(wday)
+      
+      # ✅ ИСПРАВЛЕНО: Правильное название настройки Redmine
+      # non_working_week_days хранит выходные дни: ['6', '7'] (сб, вс)
+      non_working_days = Setting['non_working_week_days'] || ['6', '7']
+      
+      # Преобразуем в массив целых чисел
+      non_working_days = non_working_days.map(&:to_i) if non_working_days.is_a?(Array)
+      
+      # ✅ Преобразуем wday в формат Redmine:
+      # Ruby: 0=вс, 1=пн, 2=вт, 3=ср, 4=чт, 5=пт, 6=сб
+      # Redmine: 1=пн, 2=вт, 3=ср, 4=чт, 5=пт, 6=сб, 7=вс
+      redmine_wday = wday == 0 ? 7 : wday
+      
+      # ✅ День рабочий, если он НЕ в списке выходных
+      !non_working_days.include?(redmine_wday)
     end
-    
+
     # ============================================================================
     # Метод сдвига даты на рабочие дни
     # ============================================================================

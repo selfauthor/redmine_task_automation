@@ -212,3 +212,6 @@ ru:
     # Email уведомления
     email:
       notification_subject: "[ЕЦСПК] Ошибки и предупреждения автоматизации задач "
+
+    journal:
+      task_created: "* [Task automation] Создана задача #%{issue_id}"

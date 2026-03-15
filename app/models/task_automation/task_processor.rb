@@ -1329,7 +1329,7 @@ module TaskAutomation
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: user_id=#{user.id}, login=#{user.login}"
         
         # Инициализируем журнал для задачи-шаблона
-        template_issue.init_journal(user, "[Task automation] Создана задача ##{target_issue_id}")
+        template_issue.init_journal(user, I18n.t('task_automation.journal.task_created', issue_id: target_issue_id))
         
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: журнал инициализирован"
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.persisted?=#{template_issue.current_journal.persisted?}"
