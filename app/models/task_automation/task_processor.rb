@@ -191,13 +191,60 @@ module TaskAutomation
         assignee = get_assignee(template_issue)
         return unless assignee
         
-        # Шаг 3.4: Создание целевой задачи
+        # ✅ ШАГ 3.4: Валидация дополнительных полей периодичности
+        interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
+        interval_unit = interval_unit_field_id.present? ? 
+                        template_issue.custom_field_value(interval_unit_field_id) : 'день'
+        
+        validation_result = validate_additional_fields(template_issue, interval_unit)
+        
+        unless validation_result[:valid]
+          validation_result[:errors].each do |error|
+            add_error(error, template_issue.id)
+          end
+          return
+        end
+        
+        # Записываем предупреждения из валидации
+        validation_result[:warnings].each do |warning|
+          add_warning(warning, template_issue.id)
+        end
+        
+        # ✅ ШАГ 3.5: Проверка соответствия даты расписанию
+        # ✅ ИСПРАВЛЕНО: Определяем date_field_id ПЕРЕД использованием
+        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+        
+        schedule_check = check_date_matches_schedule(template_issue, interval_unit)
+        
+        unless schedule_check[:matches]
+          # ✅ СОХРАНЯЕМ старую дату для журналирования
+          old_date = template_issue.custom_field_value(date_field_id)
+
+          # Обновляем дату на ближайшую подходящую
+          update_next_execution_date_to(template_issue, schedule_check[:next_valid_date])
+
+          # ✅ ЗАПИСЫВАЕМ в журнал изменение даты (target_issue_id = nil)
+          log_task_creation_in_template_history(
+            template_issue, 
+            nil,  # ✅ target_issue_id = nil (задача не создавалась)
+            old_date, 
+            schedule_check[:next_valid_date]
+          )
+          
+          add_warning(I18n.t('task_automation.validation.date_not_matching_schedule', 
+                            new_date: schedule_check[:next_valid_date].strftime('%Y-%m-%d')), 
+                     template_issue.id)
+          
+          return  # Прерываем обработку шаблона, задача не создаётся
+        end
+        
+        # Шаг 3.6: Создание целевой задачи
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
         
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version} "
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}  "
         
-        # Шаг 3.5: Добавление наблюдателей (ПЕРЕД сохранением дат!)
+        # Шаг 3.7: Добавление наблюдателей (ПЕРЕД сохранением дат!)
         target_issue.reload
         
         # Добавление наблюдателей
@@ -205,13 +252,13 @@ module TaskAutomation
         
         # Еще раз reload перед сохранением дат
         target_issue.reload
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Наблюдатели добавлены "
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Наблюдатели добавлены  "
         
-        # Шаг 3.6: Перезагружаем задачу после добавления наблюдателей
+        # Шаг 3.8: Перезагружаем задачу после добавления наблюдателей
         target_issue.reload
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version} "
+        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}  "
         
-        # Шаг 3.7: Обработка подзадач
+        # Шаг 3.9: Обработка подзадач
         has_subtasks = template_issue.children.any?
         
         if has_subtasks
@@ -229,7 +276,7 @@ module TaskAutomation
           calculate_single_issue_dates(target_issue, template_issue)
         end
         
-        # Шаг 3.8: Логирование успешного создания
+        # Шаг 3.10: Логирование успешного создания
         subtask_message = has_subtasks ? 
            I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
         
@@ -245,7 +292,7 @@ module TaskAutomation
         # Отправка уведомлений наблюдателям и назначенному пользователю о создании задачи
         send_creation_notifications(target_issue, template_issue.id)
         
-        # Шаг 3.9: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
+        # Шаг 3.11: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
         begin
           update_next_execution_date(template_issue, target_issue.id)
         rescue => e
@@ -253,11 +300,11 @@ module TaskAutomation
           add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
         end
 
-        Rails.logger.info  "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id} "
+        Rails.logger.info  "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}  "
         
       rescue => e
-        Rails.logger.error  "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message} "
-        Rails.logger.error  "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")} "
+        Rails.logger.error  "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}  "
+        Rails.logger.error  "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}  "
         
         add_error(I18n.t('task_automation.log.template_processing_error', 
                        issue_id: template_issue.id, 
@@ -862,6 +909,9 @@ module TaskAutomation
       nil
     end
 
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: Обновление даты следующего выполнения
+    # ============================================================================
     def update_next_execution_date(template_issue, target_issue_id = nil)
       date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
       unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
@@ -870,296 +920,210 @@ module TaskAutomation
       repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
       month_field_id = @custom_field_ids[FIELD_MONTH]
       
-      Rails.logger.info "[TaskAutomation] update_next_execution_date: ШАБЛОН ##{template_issue.id}"
-      Rails.logger.info "[TaskAutomation]   - current_date: #{template_issue.custom_field_value(date_field_id)}"
-      Rails.logger.info "[TaskAutomation]   - interval_unit: '#{template_issue.custom_field_value(unit_field_id)}'"
-      Rails.logger.info "[TaskAutomation]   - interval_value: #{template_issue.custom_field_value(interval_field_id).to_i}"
-      Rails.logger.info "[TaskAutomation]   - day_number: '#{template_issue.custom_field_value(day_number_field_id)}'"
-      Rails.logger.info "[TaskAutomation]   - repeat_days: '#{template_issue.custom_field_value(repeat_days_field_id)}'"
-      Rails.logger.info "[TaskAutomation]   - month: '#{template_issue.custom_field_value(month_field_id)}'"
-      
       return unless date_field_id.present?
       
       current_date = template_issue.custom_field_value(date_field_id)
       return unless current_date.present?
       
       current_date = current_date.to_date
-      
-      # Сохраняем старое значение для журналирования
       old_date_value = current_date.dup
       
-      interval_unit = unit_field_id.present? ? 
-                     template_issue.custom_field_value(unit_field_id) : nil
+      interval_unit = unit_field_id.present? ? template_issue.custom_field_value(unit_field_id) : nil
+      interval_value = interval_field_id.present? ? (template_issue.custom_field_value(interval_field_id).to_i rescue 1) : 1
       
-      interval_value = interval_field_id.present? ? 
-                      (template_issue.custom_field_value(interval_field_id).to_i rescue 1) : 1
-      
-      new_date = nil
-      
-      case interval_unit
-      when 'год', 'year'
-        new_date = calculate_yearly_date(current_date, interval_value, 
-                                        template_issue, day_number_field_id,
-                                         repeat_days_field_id, month_field_id)
-      when 'месяц', 'month'
-        new_date = calculate_monthly_date(current_date, interval_value,
-                                         template_issue, day_number_field_id,
-                                         repeat_days_field_id)
-      when 'неделя', 'week'
-        new_date = calculate_weekly_date(current_date, interval_value, 
-                                         template_issue, repeat_days_field_id)
-      when 'день', 'day'
-        new_date = calculate_daily_date(current_date, interval_value)
-      else
-        new_date = calculate_daily_date(current_date, interval_value)
-      end
+      # Вычисляем новую дату С применением интервала
+      new_date = case interval_unit
+                 when 'год', 'year'
+                   calculate_yearly_date(current_date, interval_value, template_issue, day_number_field_id, repeat_days_field_id, month_field_id, apply_interval: true)
+                 when 'месяц', 'month'
+                   calculate_monthly_date(current_date, interval_value, template_issue, day_number_field_id, repeat_days_field_id, apply_interval: true)
+                 when 'неделя', 'week'
+                   calculate_weekly_date(current_date, interval_value, template_issue, repeat_days_field_id, apply_interval: true)
+                 when 'день', 'day'
+                   calculate_daily_date(current_date, interval_value)
+                 else
+                   calculate_daily_date(current_date, interval_value)
+                 end
       
       if new_date.present?
         template_issue.custom_field_values = { date_field_id => new_date }
         
-        Rails.logger.info "[TaskAutomation] update_next_execution_date: НОВАЯ ДАТА: #{new_date}"
-        
-        # Вызываем журналирование ПЕРЕД сохранением
+        # Журналирование ПЕРЕД сохранением
         if target_issue_id.present?
           log_task_creation_in_template_history(template_issue, target_issue_id, old_date_value, new_date)
         else
-          # Если target_issue_id не передан, просто сохраняем без журналирования
           template_issue.save!(notifications: false)
         end
       end
     end
 
-    def calculate_yearly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id, month_field_id)
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: calculate_yearly_date (универсальный)
+    # ============================================================================
+    def calculate_yearly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id, month_field_id, apply_interval: true)
       begin
         month_field_value = month_field_id.present? ? 
-                           template_issue.custom_field_value(month_field_id) : nil
-        day_number = day_number_field_id.present? ? 
-                    (template_issue.custom_field_value(day_number_field_id).to_i rescue nil) : nil
-        
-        # ✅ Преобразуем repeat_days из массива в строку
-        repeat_days_raw = repeat_days_field_id.present? ? 
-                         template_issue.custom_field_value(repeat_days_field_id) : nil
-        
-        repeat_days = case repeat_days_raw
-                      when Array
-                        non_empty = repeat_days_raw.compact.reject(&:blank?)
-                        non_empty.empty? ? nil : non_empty.join(',')
-                      when String
-                        begin
-                          parsed = JSON.parse(repeat_days_raw)
-                          if parsed.is_a?(Array)
-                            non_empty = parsed.compact.reject(&:blank?)
-                            non_empty.empty? ? nil : non_empty.join(',')
-                          else
-                            repeat_days_raw.blank? ? nil : repeat_days_raw
-                          end
-                        rescue JSON::ParserError
-                          repeat_days_raw.blank? ? nil : repeat_days_raw
-                        end
-                      else
-                        nil
-                      end
-        
-        if month_field_value.present?
-          month_num = month_name_to_number(month_field_value)
-          
-          if repeat_days.present?
-            day_num = repeat_day_name_to_number(repeat_days)
-            new_date = find_nth_weekday_in_month(current_date.year + interval, month_num, day_num)
-            
-            unless new_date
-              add_warning(I18n.t('task_automation.log.invalid_weekday_in_month'), template_issue.id)
-              return current_date + interval.years
-            end
-          elsif day_number.present?
-            new_date = Date.new(current_date.year + interval, month_num, day_number)
-          else
-            add_warning(I18n.t('task_automation.log.month_without_day'), template_issue.id)
-            return current_date + interval.years
-          end
-        else
-          new_date = current_date + interval.years
-        end
-        
-        new_date
-      rescue => e
-        add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
-        current_date + interval.years
-      end
-    end
-
-    def calculate_monthly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id)
-      begin
-        # Получаем сырые значения из кастомных полей
+                            template_issue.custom_field_value(month_field_id) : nil
         day_number_raw = day_number_field_id.present? ? 
                         template_issue.custom_field_value(day_number_field_id) : nil
         repeat_days_raw = repeat_days_field_id.present? ? 
                          template_issue.custom_field_value(repeat_days_field_id) : nil
         
-        # ✅ ПРАВИЛЬНАЯ конвертация: пустая строка → nil, не 0!
         day_number = day_number_raw.present? ? day_number_raw.to_i : nil
+        repeat_days_array = parse_repeat_days(repeat_days_raw)
         
-        # ✅ Парсим JSON или оставляем как строку
-        repeat_days = case repeat_days_raw
-                      when Array
-                        non_empty = repeat_days_raw.compact.reject(&:blank?)
-                        non_empty.empty? ? nil : non_empty.join(',')
-                      when String
-                        begin
-                          parsed = JSON.parse(repeat_days_raw)
-                          if parsed.is_a?(Array)
-                            non_empty = parsed.compact.reject(&:blank?)
-                            non_empty.empty? ? nil : non_empty.join(',')
-                          else
-                            repeat_days_raw
-                          end
-                        rescue JSON::ParserError
-                          repeat_days_raw
-                        end
-                      else
-                        nil
-                      end
+        target_year = apply_interval ? (current_date.year + interval) : current_date.year
+        month_num = month_field_value.present? ? month_name_to_number(month_field_value) : current_date.month
         
-        # Расчет целевого месяца
-        target_month = current_date.month + interval
-        target_year = current_date.year
-        
-        while target_month > 12
-          target_month -= 12
-          target_year += 1
+        # СЛУЧАЙ 1: Поля не заполнены → простая дата
+        if day_number.blank? && repeat_days_array.empty?
+          max_day = Date.new(target_year, month_num, -1).day
+          target_day = [current_date.day, max_day].min
+          return Date.new(target_year, month_num, target_day)
         end
         
-        # ✅ СЛУЧАЙ 1: Поля не заполнены → просто добавляем интервал
-        # 10 марта → 10 апреля
-        if day_number.blank? && repeat_days.blank?
+        # СЛУЧАЙ 2: Номер + Дни повторения + Месяц
+        if day_number.present? && repeat_days_array.any?
+          day_num = repeat_day_name_to_number(repeat_days_array.first)
+          
+          if day_number == 5
+            new_date = find_last_weekday_in_month(target_year, month_num, day_num)
+          else
+            new_date = find_nth_weekday_in_month(target_year, month_num, day_num, day_number)
+          end
+          
+          return new_date if new_date
+        end
+        
+        # Запасной вариант
+        apply_interval ? (current_date + interval.years) : current_date
+        
+      rescue => e
+        add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
+        apply_interval ? (current_date + interval.years) : current_date
+      end
+    end
+
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: calculate_monthly_date (универсальный)
+    # ============================================================================
+    def calculate_monthly_date(current_date, interval, template_issue, day_number_field_id, repeat_days_field_id, apply_interval: true)
+      begin
+        day_number_raw = day_number_field_id.present? ? 
+                        template_issue.custom_field_value(day_number_field_id) : nil
+        repeat_days_raw = repeat_days_field_id.present? ? 
+                         template_issue.custom_field_value(repeat_days_field_id) : nil
+        
+        day_number = day_number_raw.present? ? day_number_raw.to_i : nil
+        repeat_days_array = parse_repeat_days(repeat_days_raw)
+        
+        # Расчет целевого месяца
+        if apply_interval
+          target_month = current_date.month + interval
+          target_year = current_date.year
+          
+          while target_month > 12
+            target_month -= 12
+            target_year += 1
+          end
+        else
+          # НЕ применяем интервал - остаемся в том же месяце
+          target_month = current_date.month
+          target_year = current_date.year
+        end
+        
+        # СЛУЧАЙ 1: Поля не заполнены → простое число месяца
+        if day_number.blank? && repeat_days_array.empty?
           max_day = Date.new(target_year, target_month, -1).day
           target_day = [current_date.day, max_day].min
           return Date.new(target_year, target_month, target_day)
         end
         
-        # ✅ СЛУЧАЙ 2: "Первый понедельник" (число=1 + дни повторения)
-        if day_number == 1 && repeat_days.present?
-          day_num = repeat_day_name_to_number(repeat_days)
-          new_date = find_nth_weekday_in_month(target_year, target_month, day_num)
-          return new_date if new_date
-        end
-        
-        # ✅ СЛУЧАЙ 3: Конкретное число месяца (ОСНОВНОЙ СЛУЧАЙ)
-        if day_number.present? && day_number > 0
-          max_day = Date.new(target_year, target_month, -1).day
+        # СЛУЧАЙ 2: Номер + Дни повторения заполнены
+        if day_number.present? && repeat_days_array.any?
+          day_num = repeat_day_name_to_number(repeat_days_array.first)
           
-          # Если числа нет в месяце → берем последнее число
-          if day_number > max_day
-            new_date = Date.new(target_year, target_month, max_day)
+          if day_number == 5
+            new_date = find_last_weekday_in_month(target_year, target_month, day_num)
           else
-            new_date = Date.new(target_year, target_month, day_number)
+            new_date = find_nth_weekday_in_month(target_year, target_month, day_num, day_number)
           end
           
-          # ⚠️ "Дни повторения" НЕ влияют на расчет следующей даты!
-          return new_date
-        end
-        
-        # ✅ СЛУЧАЙ 4: Только дни повторения без числа
-        if repeat_days.present?
-          day_num = repeat_day_name_to_number(repeat_days)
-          new_date = find_nth_weekday_in_month(target_year, target_month, day_num)
           return new_date if new_date
         end
         
         # Запасной вариант
-        current_date >> interval
+        apply_interval ? (current_date >> interval) : current_date
         
       rescue => e
         add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
-        current_date >> interval
+        apply_interval ? (current_date >> interval) : current_date
       end
     end
 
-    def calculate_weekly_date(current_date, interval, template_issue, repeat_days_field_id)
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: calculate_weekly_date (универсальный)
+    # apply_interval: true  → штатный расчет следующей даты (после создания задачи)
+    # apply_interval: false → проверка соответствия (без применения интервала)
+    # ============================================================================
+    def calculate_weekly_date(current_date, interval, template_issue, repeat_days_field_id, apply_interval: true)
       begin
         repeat_days_raw = repeat_days_field_id.present? ? 
-                          template_issue.custom_field_value(repeat_days_field_id) : nil
+                           template_issue.custom_field_value(repeat_days_field_id) : nil
         
-        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days_raw=#{repeat_days_raw.inspect} (class: #{repeat_days_raw.class}) "
+        repeat_days_array = parse_repeat_days(repeat_days_raw)
         
-        # ✅ Преобразуем в строку, если это массив
-        repeat_days = case repeat_days_raw
-                      when Array
-                        # Фильтруем nil и пустые строки перед join
-                        non_empty = repeat_days_raw.compact.reject(&:blank?)
-                        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: non_empty=#{non_empty.inspect} "
-                        non_empty.empty? ? nil : non_empty.join(',')
-                      when String
-                        # Пробуем распарсить JSON
-                        begin
-                          parsed = JSON.parse(repeat_days_raw)
-                          if parsed.is_a?(Array)
-                            non_empty = parsed.compact.reject(&:blank?)
-                            non_empty.empty? ? nil : non_empty.join(',')
-                          else
-                            repeat_days_raw.blank? ? nil : repeat_days_raw
-                          end
-                        rescue JSON::ParserError
-                          repeat_days_raw.blank? ? nil : repeat_days_raw
-                        end
-                      else
-                        nil
-                      end
-        
-        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days после преобразования=#{repeat_days.inspect} "
-        
-        if repeat_days.blank?
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: repeat_days blank, возвращаем current_date + interval.weeks "
-          return current_date + interval.weeks
+        if repeat_days_array.empty?
+          return apply_interval ? (current_date + interval.weeks) : current_date
         end
         
-        days_list = repeat_days.split(/[;,]/).map(&:strip).reject(&:blank?)
+        today = Date.today
         
-        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: days_list=#{days_list.inspect} "
-        
-        if days_list.empty?
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: days_list empty, возвращаем current_date + interval.weeks "
-          return current_date + interval.weeks
-        end
-        
-        if days_list.length > 1 && interval != 1
-          add_warning(I18n.t('task_automation.log.multiple_days_invalid_interval'), template_issue.id)
-          return current_date + interval.weeks
-        end
-        
-        if days_list.length == 1
-          day_num = repeat_day_name_to_number(days_list.first)
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: day_num=#{day_num} "
+        if repeat_days_array.length == 1
+          # ОДИН день
+          day_num = repeat_day_name_to_number(repeat_days_array.first)
           
-          new_date = current_date + interval.weeks
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date до цикла=#{new_date} (wday=#{new_date.wday}) "
-          
-          while new_date.wday != day_num
-            new_date += 1.day
+          if apply_interval
+            # ШТАТНЫЙ РАСЧЕТ: применяем интервал
+            base_date = current_date >= today ? current_date : today
+            new_date = base_date + interval.weeks
+            while new_date.wday != day_num
+              new_date += 1.day
+            end
+          else
+            # ПРОВЕРКА: НЕ применяем интервал, ищем ближайший этот день
+            new_date = current_date
+            while new_date.wday != day_num
+              new_date += 1.day
+            end
           end
+        else 
+          # НЕСКОЛЬКО дней - ищем следующий из списка
+          weekdays = repeat_days_array.map { |d| repeat_day_name_to_number(d) }
           
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date после цикла=#{new_date} "
-        else
-          weekdays = days_list.map { |d| repeat_day_name_to_number(d) }
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: weekdays=#{weekdays.inspect} "
-          
-          new_date = current_date + 1.day
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date до поиска=#{new_date} "
-          
-          while !weekdays.include?(new_date.wday)
-            new_date += 1.day
+          if apply_interval
+            # ✅ ПОСЛЕ СОЗДАНИЯ ЗАДАЧИ: ищем следующий день ПОСЛЕ current_date
+            # Даже если сегодня подходящий день - всё равно идём дальше
+            new_date = current_date + 1.day
+            
+            while !weekdays.include?(new_date.wday)
+              new_date += 1.day
+            end
+          else
+            # ✅ ПРИ ПРОВЕРКЕ: ищем начиная с current_date (включительно)
+            # Если сегодня подходящий день - оставляем как есть
+            new_date = current_date
+            
+            while !weekdays.include?(new_date.wday)
+              new_date += 1.day
+            end
           end
-          
-          Rails.logger.info  "[TaskAutomation] calculate_weekly_date: new_date после поиска=#{new_date} "
         end
         
-        Rails.logger.info  "[TaskAutomation] calculate_weekly_date: ВОЗВРАЩАЕМ new_date=#{new_date} "
         new_date
       rescue => e
-        Rails.logger.error  "[TaskAutomation] calculate_weekly_date: ОШИБКА - #{e.class}: #{e.message} "
-        Rails.logger.error  "[TaskAutomation] calculate_weekly_date: Backtrace: #{e.backtrace.first(5).join("\n")} "
         add_warning(I18n.t('task_automation.log.date_calculation_error', error: e.message), template_issue.id)
-        current_date + interval.weeks
+        apply_interval ? (current_date + interval.weeks) : current_date
       end
     end
 
@@ -1329,8 +1293,14 @@ module TaskAutomation
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: user_id=#{user.id}, login=#{user.login}"
         
         # Инициализируем журнал для задачи-шаблона
-        template_issue.init_journal(user, I18n.t('task_automation.journal.task_created', issue_id: target_issue_id))
-        
+        # ✅ ИСПРАВЛЕНО: Инициализируем журнал только если target_issue_id присутствует
+        if target_issue_id.present?
+          template_issue.init_journal(user, I18n.t('task_automation.journal.task_created', issue_id: target_issue_id))
+        else
+          # Если target_issue_id пустой, создаем журнал без заметки (только для изменения даты)
+          template_issue.init_journal(user, "")
+        end
+
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: журнал инициализирован"
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.persisted?=#{template_issue.current_journal.persisted?}"
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.notes='#{template_issue.current_journal.notes}'"
@@ -1392,6 +1362,224 @@ module TaskAutomation
     def format_date(date)
       return nil unless date.present?
       date.is_a?(String) ? date : date.strftime('%Y-%m-%d')
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Валидация дополнительных полей периодичности
+    # ============================================================================
+    def validate_additional_fields(template_issue, interval_unit)
+      errors = []
+      warnings = []
+      
+      day_number_field_id = @custom_field_ids[FIELD_DAY_NUMBER]
+      repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
+      month_field_id = @custom_field_ids[FIELD_MONTH]
+      interval_field_id = @custom_field_ids[FIELD_INTERVAL_VALUE]
+      
+      # Получаем значения полей
+      day_number_raw = day_number_field_id.present? ? 
+                       template_issue.custom_field_value(day_number_field_id) : nil
+      repeat_days_raw = repeat_days_field_id.present? ? 
+                        template_issue.custom_field_value(repeat_days_field_id) : nil
+      month_value = month_field_id.present? ? 
+                    template_issue.custom_field_value(month_field_id) : nil
+      interval_value = interval_field_id.present? ? 
+                       (template_issue.custom_field_value(interval_field_id).to_i rescue 1) : 1
+      
+      # Конвертируем repeat_days в массив
+      repeat_days_array = parse_repeat_days(repeat_days_raw)
+      day_number = day_number_raw.present? ? day_number_raw.to_i : nil
+      
+      case interval_unit
+      when 'день', 'day'
+        # Для интервала "день" дополнительные поля игнорируются
+        if day_number.present? || repeat_days_array.any? || month_value.present?
+          warnings << I18n.t('task_automation.validation.day_interval_extra_fields_warning')
+        end
+        
+      when 'неделя', 'week'
+        # Для интервала "неделя" с несколькими днями интервал игнорируется
+        if repeat_days_array.length > 1 && interval_value > 1
+          warnings << I18n.t('task_automation.validation.week_multiple_days_interval_warning')
+        end
+        
+      when 'месяц', 'month'
+        # Поля "Номер" и "Дни повторения" должны быть оба заполнены или оба пустые
+        day_number_filled = day_number.present?
+        repeat_days_filled = repeat_days_array.any?
+        
+        if day_number_filled != repeat_days_filled
+          errors << I18n.t('task_automation.validation.month_both_fields_required')
+        end
+        
+        # Если оба заполнены, проверяем валидность
+        if day_number_filled && repeat_days_filled
+          # Номер должен быть от 1 до 5
+          unless day_number >= 1 && day_number <= 5
+            errors << I18n.t('task_automation.validation.month_day_number_invalid')
+          end
+          
+          # Дни повторения - только одно значение
+          if repeat_days_array.length > 1
+            errors << I18n.t('task_automation.validation.month_multiple_repeat_days')
+          end
+        end
+        
+      when 'год', 'year'
+        # Те же правила как для месяца
+        day_number_filled = day_number.present?
+        repeat_days_filled = repeat_days_array.any?
+        
+        if day_number_filled != repeat_days_filled
+          errors << I18n.t('task_automation.validation.month_both_fields_required')
+        end
+        
+        # Если поля заполнены, поле "Месяц" обязательно
+        if (day_number_filled || repeat_days_filled) && month_value.blank?
+          errors << I18n.t('task_automation.validation.year_month_required')
+        end
+        
+        if day_number_filled && repeat_days_filled
+          unless day_number >= 1 && day_number <= 5
+            errors << I18n.t('task_automation.validation.month_day_number_invalid')
+          end
+          
+          if repeat_days_array.length > 1
+            errors << I18n.t('task_automation.validation.month_multiple_repeat_days')
+          end
+        end
+      end
+      
+      { valid: errors.empty?, errors: errors, warnings: warnings }
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Парсинг поля "Дни повторения" в массив
+    # ============================================================================
+    def parse_repeat_days(repeat_days_raw)
+      return [] unless repeat_days_raw.present?
+      
+      case repeat_days_raw
+      when Array
+        repeat_days_raw.compact.reject(&:blank?)
+      when String
+        begin
+          parsed = JSON.parse(repeat_days_raw)
+          if parsed.is_a?(Array)
+            parsed.compact.reject(&:blank?)
+          else
+            repeat_days_raw.split(/[;,]/).map(&:strip).reject(&:blank?)
+          end
+        rescue JSON::ParserError
+          repeat_days_raw.split(/[;,]/).map(&:strip).reject(&:blank?)
+        end
+      else
+        []
+      end
+    end
+
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: Проверка соответствия даты расписанию
+    # ============================================================================
+    def check_date_matches_schedule(template_issue, interval_unit)
+      date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+      interval_field_id = @custom_field_ids[FIELD_INTERVAL_VALUE]
+      day_number_field_id = @custom_field_ids[FIELD_DAY_NUMBER]
+      repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
+      month_field_id = @custom_field_ids[FIELD_MONTH]
+      
+      current_date = template_issue.custom_field_value(date_field_id)
+      return { matches: true, next_valid_date: nil } unless current_date.present?
+      
+      current_date = current_date.to_date
+      interval_value = interval_field_id.present? ? 
+                       (template_issue.custom_field_value(interval_field_id).to_i rescue 1) : 1
+      
+      today = Date.today
+      
+      # Вычисляем ожидаемую дату БЕЗ применения интервала
+      expected_date = case interval_unit
+                      when 'день', 'day'
+                        current_date
+                      when 'неделя', 'week'
+                        # ✅ ИСПРАВЛЕНО: используем calculate_weekly_date с apply_interval: false
+                        calculate_weekly_date(current_date, interval_value, template_issue, 
+                                             repeat_days_field_id, apply_interval: false)
+                      when 'месяц', 'month'
+                        # ✅ ИСПРАВЛЕНО: используем calculate_monthly_date с apply_interval: false
+                        calculate_monthly_date(current_date, interval_value, template_issue,
+                                              day_number_field_id, repeat_days_field_id,
+                                              apply_interval: false)
+                      when 'год', 'year'
+                        # ✅ ИСПРАВЛЕНО: используем calculate_yearly_date с apply_interval: false
+                        calculate_yearly_date(current_date, interval_value, template_issue,
+                                             day_number_field_id, repeat_days_field_id,
+                                             month_field_id, apply_interval: false)
+                      else
+                        current_date
+                      end
+      
+      if expected_date != current_date
+        return { matches: false, next_valid_date: expected_date }
+      end
+
+      { matches: true, next_valid_date: nil }
+    end
+
+    # ============================================================================
+    # ИЗМЕНЁННЫЙ МЕТОД: Найти N-ный день недели в месяце
+    # occurrence = 1-4 → первая, вторая, третья, четвертая
+    # occurrence = 5 → последняя
+    # ============================================================================
+    def find_nth_weekday_in_month(year, month, weekday_num, occurrence = 1)
+      if occurrence == 5
+        # Последний день недели в месяце
+        return find_last_weekday_in_month(year, month, weekday_num)
+      end
+      
+      date = Date.new(year, month, 1)
+      count = 0
+      
+      while date.month == month
+        if date.wday == weekday_num
+          count += 1
+          return date if count >= occurrence
+        end
+        date += 1.day
+      end
+      
+      nil
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Найти последний день недели в месяце
+    # ============================================================================
+    def find_last_weekday_in_month(year, month, weekday_num)
+      # Начинаем с последнего дня месяца и идём назад
+      last_day = Date.new(year, month, -1)
+      date = last_day
+      
+      while date.month == month
+        if date.wday == weekday_num
+          return date
+        end
+        date -= 1.day
+      end
+      
+      nil
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Обновление даты следующего выполнения на указанную
+    # ============================================================================
+    def update_next_execution_date_to(template_issue, new_date)
+      date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+      return unless date_field_id.present? && new_date.present?
+      
+      template_issue.custom_field_values = { date_field_id => new_date }
+      template_issue.save!(notifications: false)
+      
+      Rails.logger.info "[TaskAutomation] update_next_execution_date_to: Дата обновлена на #{new_date}  "
     end
 
   end
