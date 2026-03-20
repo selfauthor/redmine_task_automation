@@ -179,19 +179,40 @@ module TaskAutomation
       target_issue = nil
       
       begin
-        # Шаг 3.1: Проверка проекта назначения
+        # ✅ ШАГ 1: Проверка проекта назначения
         target_project = get_target_project(template_issue)
         return unless target_project
         
-        # Шаг 3.2: Проверка трекера
+        # ✅ ШАГ 2: Проверка трекера родительской задачи
         target_tracker = get_target_tracker(template_issue, target_project)
         return unless target_tracker
         
-        # Шаг 3.3: Проверка назначения (пользователь или группа)
+        # ✅ ШАГ 3: Проверка назначения (пользователь или группа)
         assignee = get_assignee(template_issue)
         return unless assignee
         
-        # ✅ ШАГ 3.4: Валидация дополнительных полей периодичности
+        # ✅ ШАГ 4: НОВАЯ ПРОВЕРКА — Валидация трекеров подзадач (ДО создания задачи!)
+        # ✅ Выполняется ТОЛЬКО если у шаблона есть подзадачи
+        if template_issue.children.any?
+          Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач для шаблона ##{template_issue.id}"
+          
+          subtask_validation = validate_subtask_trackers(template_issue, target_project)
+          
+          unless subtask_validation[:valid]
+            # ✅ ЗАПИСЫВАЕМ ОШИБКИ В ЖУРНАЛ
+            subtask_validation[:errors].each do |error|
+              add_error(error, template_issue.id)
+            end
+            
+            # ✅ ПРЕКРАЩАЕМ обработку текущего шаблона (target_issue ещё не создан)
+            Rails.logger.error "[TaskAutomation] process_template_issue: Проверка трекеров подзадач не пройдена, обработка прекращена"
+            return
+          end
+          
+          Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач пройдена успешно"
+        end
+        
+        # ✅ ШАГ 5: Валидация дополнительных полей периодичности
         interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
         interval_unit = interval_unit_field_id.present? ? 
                         template_issue.custom_field_value(interval_unit_field_id) : 'день'
@@ -210,23 +231,19 @@ module TaskAutomation
           add_warning(warning, template_issue.id)
         end
         
-        # ✅ ШАГ 3.5: Проверка соответствия даты расписанию
-        # ✅ ИСПРАВЛЕНО: Определяем date_field_id ПЕРЕД использованием
+        # ✅ ШАГ 6: Проверка соответствия даты расписанию
         date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
         
         schedule_check = check_date_matches_schedule(template_issue, interval_unit)
         
         unless schedule_check[:matches]
-          # ✅ СОХРАНЯЕМ старую дату для журналирования
           old_date = template_issue.custom_field_value(date_field_id)
 
-          # Обновляем дату на ближайшую подходящую
           update_next_execution_date_to(template_issue, schedule_check[:next_valid_date])
 
-          # ✅ ЗАПИСЫВАЕМ в журнал изменение даты (target_issue_id = nil)
           log_task_creation_in_template_history(
             template_issue, 
-            nil,  # ✅ target_issue_id = nil (задача не создавалась)
+            nil,
             old_date, 
             schedule_check[:next_valid_date]
           )
@@ -235,48 +252,52 @@ module TaskAutomation
                             new_date: schedule_check[:next_valid_date].strftime('%Y-%m-%d')), 
                      template_issue.id)
           
-          return  # Прерываем обработку шаблона, задача не создаётся
+          return
         end
         
-        # Шаг 3.6: Создание целевой задачи
+        # ✅ ШАГ 7: Создание целевой задачи (ТОЛЬКО если все проверки пройдены)
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
         
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}  "
+        Rails.logger.info "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}"
         
         # Шаг 3.7: Добавление наблюдателей (ПЕРЕД сохранением дат!)
         target_issue.reload
         
-        # Добавление наблюдателей
         add_watchers(target_issue, template_issue, assignee)
         
-        # Еще раз reload перед сохранением дат
         target_issue.reload
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Наблюдатели добавлены  "
+        Rails.logger.info "[TaskAutomation] process_template_issue: Наблюдатели добавлены"
         
-        # Шаг 3.8: Перезагружаем задачу после добавления наблюдателей
         target_issue.reload
-        Rails.logger.info  "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}  "
+        Rails.logger.info "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}"
         
-        # Шаг 3.9: Обработка подзадач
+        # Шаг 3.8: Обработка подзадач
         has_subtasks = template_issue.children.any?
-        
+
         if has_subtasks
           success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee)
           
           unless success
+            Rails.logger.warn "[TaskAutomation] process_template_issue: Удаление задачи ##{target_issue.id} из-за ошибки создания подзадач"
             target_issue.destroy
-            add_error(I18n.t('task_automation.log.subtask_processing_failed'), template_issue.id)
+            add_error(I18n.t('task_automation.log.subtask_processing_failed', 
+                             target_issue_id: target_issue.id), template_issue.id)
             return
           end
           
           @created_subtasks_count += subtasks_count
-          calculate_parent_due_date(target_issue, template_issue)
+          
+          # ✅ ИСПРАВЛЕНО: Всегда рассчитываем due_date родителя от его собственного "Срок выполнения"
+          calculate_single_issue_dates(target_issue, template_issue)
+          
+          # ✅ ДОПОЛНИТЕЛЬНО: Проверяем, не вышла ли цепочка подзадач за пределы срока родителя
+          check_subtask_chain_vs_parent_due(target_issue, template_issue)
         else
           calculate_single_issue_dates(target_issue, template_issue)
         end
-        
-        # Шаг 3.10: Логирование успешного создания
+
+        # Шаг 3.9: Логирование успешного создания
         subtask_message = has_subtasks ? 
            I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
         
@@ -289,22 +310,20 @@ module TaskAutomation
         
         @created_issues_count += 1
 
-        # Отправка уведомлений наблюдателям и назначенному пользователю о создании задачи
         send_creation_notifications(target_issue, template_issue.id)
         
-        # Шаг 3.11: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
+        # Шаг 3.10: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
         begin
           update_next_execution_date(template_issue, target_issue.id)
         rescue => e
-          # ⚠️ WARNING: Ошибка обновления даты не должна прерывать создание задачи
           add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
         end
 
-        Rails.logger.info  "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}  "
+        Rails.logger.info "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}"
         
       rescue => e
-        Rails.logger.error  "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}  "
-        Rails.logger.error  "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}  "
+        Rails.logger.error "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}"
+        Rails.logger.error "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}"
         
         add_error(I18n.t('task_automation.log.template_processing_error', 
                        issue_id: template_issue.id, 
@@ -742,71 +761,50 @@ module TaskAutomation
     # ============================================================================
     def calculate_subtask_due_date(subtask, subtask_template)
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
-      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]  # ✅ ЗАМЕНЕНО
+      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]
       
+      # Получаем длительность (обязательное поле, но добавляем защиту)
       duration = duration_field_id.present? ? 
                  (subtask_template.custom_field_value(duration_field_id).to_i rescue 0) : 0
       
-      # ✅ ПРОВЕРКА: Конец в рабочий день
+      # Проверка: Конец в рабочий день
       end_on_working_day = end_on_working_day_field_id.present? && 
                           (subtask_template.custom_field_value(end_on_working_day_field_id).to_i == 1)
       
+      # Устанавливаем due_date
       if duration == 0
         subtask.due_date = subtask.start_date
       else
         subtask.due_date = subtask.start_date + duration.days
       end
       
-      # ✅ КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
+      # КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
       if end_on_working_day && subtask.due_date.present? && !TaskAutomation::Service.working_day?(subtask.due_date)
-        Rails.logger.info  "[TaskAutomation] calculate_subtask_due_date: due_date выпадает на выходной (#{subtask.due_date.strftime('%A')}), сдвигаем НАЗАД "
+        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: due_date выпадает на выходной (#{subtask.due_date.strftime('%A')}), сдвигаем ВПЕРЁД"
         
-        adjusted_due_date = TaskAutomation::Service.shift_to_working_day(subtask.due_date, direction: :backward)
-        days_shift = (subtask.due_date - adjusted_due_date).to_i
+        # ✅ Сдвигаем ВПЕРЁД к ближайшему рабочему дню (для подзадач)
+        adjusted_due_date = TaskAutomation::Service.shift_to_working_day(subtask.due_date, direction: :forward)
         
-        subtask.start_date = subtask.start_date - days_shift.days
+        # ✅ start_date НЕ меняем (только для подзадач)
         subtask.due_date = adjusted_due_date
         
-        Rails.logger.info  "[TaskAutomation] calculate_subtask_due_date: Сдвинуто - start_date=#{subtask.start_date}, due_date=#{subtask.due_date} "
+        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Сдвинуто - start_date=#{subtask.start_date}, due_date=#{subtask.due_date}"
       end
       
-      # Перезагружаем перед сохранением
+      # Сохраняем и перезагружаем для гарантии актуальных данных
+      subtask.save!(notifications: false)
       subtask.reload
       
-      subtask.save!(notifications: false)
-      subtask.due_date
-    end
-
-    # ============================================================================
-    # Расчет даты завершения родительской задачи
-    # ============================================================================
-    def calculate_parent_due_date(parent_issue, template_issue)
-      Rails.logger.info "[TaskAutomation] calculate_parent_due_date: НАЧАЛО - parent_issue_id=#{parent_issue.id}, lock_version=#{parent_issue.lock_version}"
+      # ✅ Гарантированный возврат даты (даже если что-то пошло не так)
+      result_date = subtask.due_date || subtask.start_date
+      Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Подзадача ##{subtask.id} сохранена - start_date=#{subtask.start_date}, due_date=#{result_date}"
       
-      subtasks = parent_issue.children
-      return if subtasks.empty?
-      
-      max_due_date = subtasks.map(&:due_date).compact.max
-      
-      if max_due_date.present?
-        parent_issue.due_date = max_due_date
-        
-        # Перезагружаем перед сохранением
-        parent_issue.reload
-        
-        parent_issue.save!(notifications: false)
-        Rails.logger.info "[TaskAutomation] calculate_parent_due_date: УСПЕШНО - due_date=#{parent_issue.due_date}"
-      end
+      result_date
     end
 
     def process_subtasks(template_issue, target_issue, target_project, assignment_group)
       subtasks_created = 0
       subtasks = template_issue.children
-      
-      unless target_issue.tracker.subtask?
-        add_error(I18n.t('task_automation.log.tracker_no_subtasks'), template_issue.id)
-        return [false, 0]
-      end
       
       sorted_subtasks = sort_subtasks_by_order(subtasks)
       current_start_date = target_issue.start_date
@@ -827,12 +825,13 @@ module TaskAutomation
           )
           
           unless target_subtask
-             return [false, 0]
+            return [false, 0]
           end
       
           subtasks_created += 1
           subtask_end_date = calculate_subtask_due_date(target_subtask, subtask_template)
           
+          # ✅ Убрана проверка на present? - due_date всегда есть
           if group_max_end.blank? || subtask_end_date > group_max_end
             group_max_end = subtask_end_date
           end
@@ -842,7 +841,27 @@ module TaskAutomation
           max_end_date = group_max_end
         end
         
-        current_start_date = group_max_end + 1.day
+        # ✅ Защита на случай nil (теоретически невозможно, но для безопасности)
+        if group_max_end.present?
+          current_start_date = group_max_end + 1.day
+        else
+          current_start_date = group_start_date + 1.day
+          Rails.logger.warn "[TaskAutomation] process_subtasks: group_max_end nil для группы #{order}"
+        end
+      end
+      
+      # Проверка - не вышла ли цепочка подзадач за пределы срока родителя
+      if target_issue.due_date.present? && max_end_date.present?
+        if max_end_date > target_issue.due_date
+          days_overdue = (max_end_date - target_issue.due_date).to_i
+          add_warning(
+            I18n.t('task_automation.log.subtask_chain_exceeds_parent',
+                   days: days_overdue,
+                   parent_due: target_issue.due_date.strftime('%Y-%m-%d'),
+                   subtask_chain_end: max_end_date.strftime('%Y-%m-%d')),
+            template_issue.id
+          )
+        end
       end
       
       [true, subtasks_created]
@@ -865,7 +884,7 @@ module TaskAutomation
       subtask.custom_field_value(order_field_id).to_i
     end
 
-    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date) 
+    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date)  
       subtask = Issue.new
       subtask.project = target_project
       
@@ -876,17 +895,9 @@ module TaskAutomation
         return nil
       end
 
-      # Соответствие трекера подзадачи настройкам
-      if @settings[:subtask_tracker_id].present? && @settings[:subtask_tracker_id].to_i > 0
-        unless subtask_tracker.id == @settings[:subtask_tracker_id].to_i
-          add_error(I18n.t('task_automation.log.subtask_tracker_mismatch', 
-                         expected: @settings[:subtask_tracker_id],
-                         actual: subtask_tracker.id), subtask_template.id)
-        end
-      end
-      
       subtask.tracker = subtask_tracker
-      subtask.parent_issue = parent_issue
+      # ✅ ИСПРАВЛЕНО: используем parent_id вместо parent_issue=
+      subtask.parent_id = parent_issue.id
       subtask.author = User.find(@settings[:author_id])
       subtask.subject = subtask_template.subject
       subtask.description = subtask_template.description
@@ -1580,6 +1591,78 @@ module TaskAutomation
       template_issue.save!(notifications: false)
       
       Rails.logger.info "[TaskAutomation] update_next_execution_date_to: Дата обновлена на #{new_date}  "
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Проверка трекеров подзадач перед обработкой шаблона
+    # Выполняется ДО создания родительской задачи
+    # ============================================================================
+    def validate_subtask_trackers(template_issue, target_project)
+      # Если у шаблона нет подзадач — проверка не нужна
+      return { valid: true, errors: [] } unless template_issue.children.any?
+      
+      errors = []
+      subtask_templates = template_issue.children
+      
+      # Получаем ID кастомного поля "Родительская задача" для проверки
+      parent_issue_field_id = @custom_field_ids[FIELD_PARENT_ISSUE]
+      
+      subtask_templates.each do |subtask_template|
+        # === ПРОВЕРКА 1: Трекер должен существовать в проекте назначения ===
+        subtask_tracker = get_target_tracker(subtask_template, target_project)
+        
+        unless subtask_tracker
+          errors << I18n.t('task_automation.log.subtask_tracker_not_found_in_template',
+                           subtask_id: subtask_template.id)
+          next
+        end
+        
+        # === ПРОВЕРКА 2: Трекер должен поддерживать подзадачи ===
+        # ✅ Проверяем, доступно ли поле "Родительская задача" для этого трекера
+        if parent_issue_field_id.present?
+          parent_field = CustomField.find_by(id: parent_issue_field_id)
+          
+          if parent_field
+            unless parent_field.trackers.include?(subtask_tracker)
+              errors << I18n.t('task_automation.log.subtask_tracker_no_parent_field',
+                               tracker_name: subtask_tracker.name,
+                               subtask_id: subtask_template.id,
+                               field_name: FIELD_PARENT_ISSUE)
+            end
+          end
+        end
+      end
+      
+      { valid: errors.empty?, errors: errors }
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Проверка - не вышла ли цепочка подзадач за пределы срока родителя
+    # Вызывается ПОСЛЕ расчета due_date родителя
+    # ============================================================================
+    def check_subtask_chain_vs_parent_due(target_issue, template_issue)
+      subtasks = template_issue.children
+      return unless subtasks.any?
+      
+      # Находим максимальную due_date среди всех подзадач
+      # Для этого нужно перезагрузить target_issue и получить актуальные подзадачи
+      target_issue.reload
+      actual_subtasks = target_issue.children
+      
+      max_subtask_due = actual_subtasks.map(&:due_date).compact.max
+      
+      if max_subtask_due.present? && target_issue.due_date.present?
+        if max_subtask_due > target_issue.due_date
+          days_overdue = (max_subtask_due - target_issue.due_date).to_i
+          add_warning(
+            I18n.t('task_automation.log.subtask_chain_exceeds_parent',
+                   days: days_overdue,
+                   parent_due: target_issue.due_date.strftime('%Y-%m-%d'),
+                   subtask_chain_end: max_subtask_due.strftime('%Y-%m-%d')),
+            template_issue.id
+          )
+        end
+      end
     end
 
   end
