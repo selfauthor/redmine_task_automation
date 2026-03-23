@@ -671,5 +671,315 @@ module TaskAutomation
       
       result_date
     end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Валидация настроек плагина
+    # ============================================================================
+    def self.validate_plugin_settings(settings)
+      errors = []
+      
+      # Проверка проекта-источника
+      if settings[:source_project_id].blank?
+        errors << I18n.t('task_automation.validation.source_project_required')
+      elsif !project_exists?(settings[:source_project_id])
+        errors << I18n.t('task_automation.validation.source_project_not_found')
+      end
+      
+      # Проверка автора
+      if settings[:author_id].blank?
+        errors << I18n.t('task_automation.validation.author_required')
+      elsif !User.exists?(settings[:author_id])
+        errors << I18n.t('task_automation.validation.author_not_found')
+      end
+      
+      # Проверка трекера
+      if settings[:tracker_id].blank?
+        errors << I18n.t('task_automation.validation.tracker_required')
+      elsif !Tracker.exists?(settings[:tracker_id])
+        errors << I18n.t('task_automation.validation.tracker_not_found')
+      end
+      
+      { valid: errors.empty?, errors: errors }
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Поиск проекта по фрагменту названия
+    # ============================================================================
+    def self.find_project_by_fragment(fragment)
+      return nil unless fragment.present?
+      
+      # Ищем среди активных проектов первое совпадение по фрагменту
+      Project.active.each do |project|
+        return project if project.name.downcase.include?(fragment.downcase)
+      end
+      
+      nil
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Поиск пользователя или группы по фрагменту имени
+    # ============================================================================
+    def self.find_user_or_group_by_name_fragment(search_string)
+      return nil unless search_string.present?
+      
+      search_lower = search_string.downcase
+      
+      # Сначала ищем среди пользователей (firstname + lastname)
+      User.active.each do |user|
+        full_name = "#{user.firstname} #{user.lastname}".strip.downcase
+        login_name = user.login.downcase
+        
+        return user if full_name.include?(search_lower) || login_name.include?(search_lower)
+      end
+      
+      # Если пользователь не найден, ищем среди групп
+      Group.all.each do |group|
+        return group if group.name.downcase.include?(search_lower)
+      end
+      
+      nil
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Получение проекта назначения
+    # ============================================================================
+    def self.get_target_project_by_fragment(project_fragment, custom_field_ids)
+      unless project_fragment.present?
+        return nil
+      end
+
+      project = find_project_by_fragment(project_fragment.to_s.strip)
+
+      unless project
+        return nil
+      end
+
+      if project.archived?
+        Rails.logger.warn "[TaskAutomation] get_target_project_by_fragment: проект архивирован"
+        return nil
+      end
+      
+      project
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Получение трекера назначения
+    # ============================================================================
+    def self.get_target_tracker_by_name(tracker_name, target_project, custom_field_ids)
+      unless tracker_name.present?
+        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: имя трекера пустое"
+        return nil
+      end
+      
+      tracker = Tracker.find_by(name: tracker_name)
+      
+      unless tracker
+        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: трекер не найден"
+        return nil
+      end
+      
+      unless target_project.trackers.include?(tracker)
+        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: трекер недоступен в проекте"
+        return nil
+      end
+      
+      tracker
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Получение назначенного (пользователь или группа)
+    # ============================================================================
+    def self.get_assignee_by_search_string(assignee_search_string, custom_field_ids)
+      unless assignee_search_string.present?
+        Rails.logger.error "[TaskAutomation] get_assignee_by_search_string: строка поиска пустая"
+        return nil
+      end
+      
+      assignee = find_user_or_group_by_name_fragment(assignee_search_string.to_s.strip)
+      
+      unless assignee
+        Rails.logger.error "[TaskAutomation] get_assignee_by_search_string: назначенный не найден"
+        return nil
+      end
+      
+      assignee
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Валидация трекеров подзадач
+    # ============================================================================
+    def self.validate_subtask_trackers(template_issue, target_project, custom_field_ids)
+      return { valid: true, errors: [] } unless template_issue.children.any?
+      
+      errors = []
+      parent_issue_field_id = custom_field_ids[FIELD_PARENT_ISSUE]
+      
+      template_issue.children.each do |subtask_template|
+        # Получаем трекер из шаблона подзадачи
+        tracker_field_id = custom_field_ids[FIELD_TARGET_TRACKER]
+        tracker_name = subtask_template.custom_field_value(tracker_field_id) if tracker_field_id.present?
+        
+        unless tracker_name.present?
+          errors << I18n.t('task_automation.log.subtask_tracker_not_found_in_template',
+                           subtask_id: subtask_template.id)
+          next
+        end
+        
+        subtask_tracker = Tracker.find_by(name: tracker_name)
+        
+        unless subtask_tracker
+          errors << I18n.t('task_automation.log.subtask_tracker_not_found_in_template',
+                           subtask_id: subtask_template.id)
+          next
+        end
+        
+        unless target_project.trackers.include?(subtask_tracker)
+          errors << I18n.t('task_automation.log.tracker_not_in_project',
+                           tracker_name: subtask_tracker.name,
+                           project_name: target_project.name)
+          next
+        end
+        
+        # Проверяем, может ли трекер быть подзадачей
+        unless subtask_tracker.core_fields.include?('parent_issue_id')
+          errors << I18n.t('task_automation.log.subtask_tracker_not_subtask',
+                           tracker_name: subtask_tracker.name,
+                           subtask_id: subtask_template.id)
+          next
+        end
+        
+        # Проверяем доступность поля "Родительская задача"
+        if parent_issue_field_id.present?
+          parent_field = CustomField.find_by(id: parent_issue_field_id)
+          
+          if parent_field && !parent_field.trackers.include?(subtask_tracker)
+            errors << I18n.t('task_automation.log.subtask_tracker_no_parent_field',
+                             tracker_name: subtask_tracker.name,
+                             subtask_id: subtask_template.id,
+                             field_name: FIELD_PARENT_ISSUE)
+          end
+        end
+      end
+      
+      { valid: errors.empty?, errors: errors }
+    end
+
+    # ============================================================================
+    # ПРОВЕРКА: Может ли трекер быть подзадачей
+    # В Redmine 6.0.7 это определяется доступностью поля parent_issue_id
+    # ============================================================================
+    def self.tracker_can_be_subtask?(tracker_id)
+      return false unless tracker_id.present?
+      
+      tracker = Tracker.find_by(id: tracker_id)
+      return false unless tracker
+      
+      # ✅ Трекер может быть подзадачей, если поле parent_issue_id НЕ отключено
+      # ✅ Проверяем через core_fields (а не через несуществующий атрибут subtask)
+      tracker.core_fields.include?('parent_issue_id')
+    end
+
+    # ============================================================================
+    # ПРОВЕРКА: Может ли трекер быть подзадачей
+    # В Redmine 6.0.7 это определяется доступностью поля parent_issue_id
+    # ============================================================================
+    def self.tracker_can_be_subtask?(tracker_id)
+      return false unless tracker_id.present?
+      
+      tracker = Tracker.find_by(id: tracker_id)
+      return false unless tracker
+      
+      # ✅ Трекер может быть подзадачей, если поле parent_issue_id НЕ отключено
+      # ✅ Проверяем через core_fields (а не через несуществующий атрибут subtask)
+      tracker.core_fields.include?('parent_issue_id')
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Комплексная проверка трекера подзадачи
+    # ============================================================================
+    def self.validate_subtask_tracker_in_project?(tracker_id, project_id)
+      errors = []
+      
+      # 1. Проверяем, существует ли трекер
+      tracker = Tracker.find_by(id: tracker_id)
+      unless tracker
+        errors << I18n.t('task_automation.test.tracker_not_found')
+        return errors
+      end
+      
+      # 2. Проверяем, может ли трекер быть подзадачей (атрибут subtask)
+      unless tracker.subtask?
+        errors << I18n.t('task_automation.test.tracker_cannot_be_subtask', 
+                         tracker_name: tracker.name)
+      end
+      
+      # 3. Проверяем доступность трекера в проекте
+      project = Project.find_by(id: project_id)
+      if project
+        unless project.trackers.include?(tracker)
+          errors << I18n.t('task_automation.test.tracker_not_available_in_project',
+                           tracker_name: tracker.name)
+        end
+      else
+        errors << I18n.t('task_automation.test.project_not_found')
+      end
+      
+      # 4. Проверяем наличие поля "Родительская задача" для трекера
+      parent_field = CustomField.find_by(name: FIELD_PARENT_ISSUE)
+      if parent_field
+        unless parent_field.trackers.include?(tracker)
+          errors << I18n.t('task_automation.test.parent_field_not_available',
+                           tracker_name: tracker.name)
+        end
+      else
+        errors << I18n.t('task_automation.test.parent_field_not_found')
+      end
+      
+      errors
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Проверка, может ли назначенный быть назначен на задачи в проекте
+    # ============================================================================
+    def self.validate_assignee_for_project(assignee, target_project)
+      return true unless assignee.present?
+      return true unless target_project.present?
+      
+      # ✅ Для пользователей проверяем членство в проекте
+      if assignee.is_a?(User)
+        member = Member.find_by(project: target_project, principal: assignee)
+        
+        unless member
+          # Проверяем через группы пользователя
+          has_access = assignee.groups.any? do |group|
+            Member.exists?(project: target_project, principal: group)
+          end
+          
+          unless has_access
+            return {
+              valid: false,
+              error: I18n.t('task_automation.log.issue_assignee_not_in_project',
+                            assignee_name: assignee.name,
+                            project_name: target_project.name)
+            }
+          end
+        end
+      end
+      
+      # ✅ Для групп проверяем членство в проекте
+      if assignee.is_a?(Group)
+        unless Member.exists?(project: target_project, principal: assignee)
+          return {
+            valid: false,
+            error: I18n.t('task_automation.log.group_not_in_project',
+                          group_name: assignee.name,
+                          project_name: target_project.name)
+          }
+        end
+      end
+      
+      { valid: true, error: nil }
+    end
+
   end
 end

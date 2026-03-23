@@ -26,7 +26,23 @@ module TaskAutomation
     FIELD_SUBTASK_ORDER = 'Порядковый номер'
     FIELD_PARENT_ISSUE = 'Родительская задача'
     FIELD_END_ON_WORKING_DAY = 'Конец в рабочий день'
-    
+
+    # ========================================================================
+    # Стандартные поля Issue (для заполнения из описания)
+    # ========================================================================
+    STANDARD_FIELDS_MAPPING = {
+      'Категория' => :category_id,
+      'Category' => :category_id,
+      'Версия' => :fixed_version_id,
+      'Version' => :fixed_version_id,
+      'Оценка временных затрат' => :estimated_hours,
+      'Estimated hours' => :estimated_hours,
+      'Готовность' => :done_ratio,
+      'Done ratio' => :done_ratio,
+      'Приоритет' => :priority_id,
+      'Priority' => :priority_id
+    }.freeze
+
     # ========================================================================
     # Поля для основных задач
     # ========================================================================

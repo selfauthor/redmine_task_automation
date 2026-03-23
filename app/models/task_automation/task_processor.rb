@@ -91,32 +91,11 @@ module TaskAutomation
     # Метод проверки валидности настроек плагина
     # ============================================================================
     def validate_settings
-      if @settings[:source_project_id].blank?
-        @errors << I18n.t('task_automation.validation.source_project_required')
-        return false
-      end
+      result = TaskAutomation::Service.validate_plugin_settings(@settings)
       
-      unless TaskAutomation::Service.project_exists?(@settings[:source_project_id])
-        @errors << I18n.t('task_automation.validation.source_project_not_found')
-        return false
-      end
+      result[:errors].each { |error| @errors << error }
       
-      if @settings[:author_id].blank?
-        @errors << I18n.t('task_automation.validation.author_required')
-        return false
-      end
-      
-      unless User.exists?(@settings[:author_id])
-        @errors << I18n.t('task_automation.validation.author_not_found')
-        return false
-      end
-      
-      if @settings[:tracker_id].blank?
-        @errors << I18n.t('task_automation.validation.tracker_required')
-        return false
-      end
-      
-      true
+      result[:valid]
     end
 
     # ============================================================================
@@ -180,38 +159,77 @@ module TaskAutomation
       
       begin
         # ✅ ШАГ 1: Проверка проекта назначения
-        target_project = get_target_project(template_issue)
-        return unless target_project
-        
-        # ✅ ШАГ 2: Проверка трекера родительской задачи
-        target_tracker = get_target_tracker(template_issue, target_project)
-        return unless target_tracker
-        
-        # ✅ ШАГ 3: Проверка назначения (пользователь или группа)
-        assignee = get_assignee(template_issue)
-        return unless assignee
-        
-        # ✅ ШАГ 4: НОВАЯ ПРОВЕРКА — Валидация трекеров подзадач (ДО создания задачи!)
-        # ✅ Выполняется ТОЛЬКО если у шаблона есть подзадачи
+        project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
+        project_fragment = template_issue.custom_field_value(project_field_id) if project_field_id.present?
+
+        target_project = TaskAutomation::Service.get_target_project_by_fragment(
+          project_fragment, @custom_field_ids)
+
+        # ✅ ИСПРАВЛЕНО: Добавляем ошибку если проект не найден
+        unless target_project
+          add_error(I18n.t('task_automation.log.project_not_found', 
+                           field_name: FIELD_TARGET_PROJECT,
+                           field_value: project_fragment.to_s), template_issue.id)
+          return
+        end
+
+        # ✅ ШАГ 2: Проверка трекера
+        tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
+        tracker_name = template_issue.custom_field_value(tracker_field_id) if tracker_field_id.present?
+
+        target_tracker = TaskAutomation::Service.get_target_tracker_by_name(
+          tracker_name, target_project, @custom_field_ids)
+
+        # ✅ ИСПРАВЛЕНО: Добавляем ошибку если трекер не найден
+        unless target_tracker
+          add_error(I18n.t('task_automation.log.tracker_not_found', 
+                           field_name: FIELD_TARGET_TRACKER,
+                           tracker_name: tracker_name.to_s), template_issue.id)
+          return
+        end
+
+        # ✅ ШАГ 3: Проверка назначения
+        assignee_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
+        assignee_search_string = template_issue.custom_field_value(assignee_field_id) if assignee_field_id.present?
+
+        assignee = TaskAutomation::Service.get_assignee_by_search_string(
+          assignee_search_string, @custom_field_ids)
+
+        # ✅ ИСПРАВЛЕНО: Добавляем ошибку если назначенный не найден
+        unless assignee
+          add_error(I18n.t('task_automation.log.assignee_not_found', 
+                           field_name: FIELD_ASSIGNMENT_GROUP,
+                           search_string: assignee_search_string.to_s), template_issue.id)
+          return
+        end
+
+        # ✅ НОВАЯ ПРОВЕРКА: Может ли назначенный быть назначен в проекте
+        assignee_validation = TaskAutomation::Service.validate_assignee_for_project(assignee, target_project)
+
+        unless assignee_validation[:valid]
+          add_error(assignee_validation[:error], template_issue.id)
+          return
+        end
+
+        # ✅ ШАГ 4: Валидация трекеров подзадач (ИЗ service.rb)
         if template_issue.children.any?
           Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач для шаблона ##{template_issue.id}"
           
-          subtask_validation = validate_subtask_trackers(template_issue, target_project)
+          subtask_validation = TaskAutomation::Service.validate_subtask_trackers(
+            template_issue, target_project, @custom_field_ids)
           
           unless subtask_validation[:valid]
-            # ✅ ЗАПИСЫВАЕМ ОШИБКИ В ЖУРНАЛ
             subtask_validation[:errors].each do |error|
               add_error(error, template_issue.id)
             end
             
-            # ✅ ПРЕКРАЩАЕМ обработку текущего шаблона (target_issue ещё не создан)
-            Rails.logger.error "[TaskAutomation] process_template_issue: Проверка трекеров подзадач не пройдена, обработка прекращена"
+            Rails.logger.error "[TaskAutomation] process_template_issue: Проверка трекеров подзадач не пройдена"
             return
           end
           
           Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач пройдена успешно"
         end
-        
+    
         # ✅ ШАГ 5: Валидация дополнительных полей периодичности
         interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
         interval_unit = interval_unit_field_id.present? ? 
@@ -226,7 +244,6 @@ module TaskAutomation
           return
         end
         
-        # Записываем предупреждения из валидации
         validation_result[:warnings].each do |warning|
           add_warning(warning, template_issue.id)
         end
@@ -250,22 +267,22 @@ module TaskAutomation
           
           add_warning(I18n.t('task_automation.validation.date_not_matching_schedule', 
                             new_date: schedule_check[:next_valid_date].strftime('%Y-%m-%d')), 
-                     template_issue.id)
+                      template_issue.id)
           
           return
         end
         
-        # ✅ ШАГ 7: Создание целевой задачи (ТОЛЬКО если все проверки пройдены)
+        # ✅ ШАГ 7: Создание целевой задачи
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
         
         Rails.logger.info "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}"
         
-        # Шаг 3.7: Добавление наблюдателей (ПЕРЕД сохранением дат!)
+        # Шаг 3.7: Добавление наблюдателей (вычисляем один раз для родителя и всех подзадач)
         target_issue.reload
-        
-        add_watchers(target_issue, template_issue, assignee)
-        
+        watcher_ids = calculate_watcher_ids(template_issue, assignee)
+        add_watchers_to_issue(target_issue, watcher_ids)
+
         target_issue.reload
         Rails.logger.info "[TaskAutomation] process_template_issue: Наблюдатели добавлены"
         
@@ -276,8 +293,8 @@ module TaskAutomation
         has_subtasks = template_issue.children.any?
 
         if has_subtasks
-          success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee)
-          
+          success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee, watcher_ids)
+  
           unless success
             Rails.logger.warn "[TaskAutomation] process_template_issue: Удаление задачи ##{target_issue.id} из-за ошибки создания подзадач"
             target_issue.destroy
@@ -287,11 +304,7 @@ module TaskAutomation
           end
           
           @created_subtasks_count += subtasks_count
-          
-          # ✅ ИСПРАВЛЕНО: Всегда рассчитываем due_date родителя от его собственного "Срок выполнения"
           calculate_single_issue_dates(target_issue, template_issue)
-          
-          # ✅ ДОПОЛНИТЕЛЬНО: Проверяем, не вышла ли цепочка подзадач за пределы срока родителя
           check_subtask_chain_vs_parent_due(target_issue, template_issue)
         else
           calculate_single_issue_dates(target_issue, template_issue)
@@ -312,7 +325,7 @@ module TaskAutomation
 
         send_creation_notifications(target_issue, template_issue.id)
         
-        # Шаг 3.10: Обновление даты следующего выполнения (НЕ КРИТИЧНО)
+        # Шаг 3.10: Обновление даты следующего выполнения
         begin
           update_next_execution_date(template_issue, target_issue.id)
         rescue => e
@@ -331,160 +344,6 @@ module TaskAutomation
       end
     end
 
-    # ============================================================================
-    # Вспомогательные методы
-    # ============================================================================
-    def get_target_project(template_issue)
-      project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
-      
-      Rails.logger.debug "[TaskAutomation] get_target_project: FIELD_TARGET_PROJECT='#{FIELD_TARGET_PROJECT}'"
-      Rails.logger.debug "[TaskAutomation] get_target_project: project_field_id=#{project_field_id}"
-      
-      unless project_field_id.present?
-        add_error(I18n.t('task_automation.log.project_field_not_configured', field_name: FIELD_TARGET_PROJECT), template_issue.id)
-        return nil
-      end
-      
-      # Получаем ФРАГМЕНТ названия проекта из кастомного поля
-      project_fragment = template_issue.custom_field_value(project_field_id)
-      
-      Rails.logger.debug "[TaskAutomation] get_target_project: project_fragment='#{project_fragment}' (class: #{project_fragment.class})"
-      
-      unless project_fragment.present?
-        add_error(I18n.t('task_automation.log.project_field_empty', field_name: FIELD_TARGET_PROJECT), template_issue.id)
-        return nil
-      end
-       
-      # Ищем проект по фрагменту названия (первое совпадение)
-      project = find_project_by_fragment(project_fragment.to_s.strip)
-      
-      Rails.logger.debug "[TaskAutomation] get_target_project: found project: #{project ? "id=#{project.id}, name='#{project.name}'" : 'nil'}"
-      
-      unless project
-        add_error(I18n.t('task_automation.log.project_not_found', field_value: project_fragment), template_issue.id)
-        return nil
-      end
-      
-      # Дополнительная проверка: проект не должен быть архивирован
-      if project.archived?
-        Rails.logger.warn "[TaskAutomation] get_target_project: проект '#{project.name}' архивирован"
-        add_error(I18n.t('task_automation.log.project_archived', project_name: project.name), template_issue.id)
-        return nil
-      end
-      
-      project
-    end
-
-    # ============================================================================
-    # Поиск проекта по фрагменту названия
-    # ============================================================================
-    def find_project_by_fragment(fragment)
-      return nil unless fragment.present?
-      
-      # Ищем среди активных проектов первое совпадение по фрагменту
-      Project.active.each do |project|
-        if project.name.downcase.include?(fragment.downcase)
-          return project
-        end
-      end
-      
-      nil
-    end
-
-    def get_target_tracker(template_issue, target_project)
-      tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
-      
-      unless tracker_field_id.present?
-        add_error(I18n.t('task_automation.log.tracker_field_not_configured', field_name: FIELD_TARGET_TRACKER), template_issue.id)
-        return nil
-      end
-      
-      tracker_name = template_issue.custom_field_value(tracker_field_id)
-      
-      unless tracker_name.present?
-        add_error(I18n.t('task_automation.log.tracker_field_empty', field_name: FIELD_TARGET_TRACKER), template_issue.id)
-        return nil
-      end
-      
-      tracker = Tracker.find_by(name: tracker_name)
-      
-      unless tracker
-        add_error(I18n.t('task_automation.log.tracker_not_found', tracker_name: tracker_name), template_issue.id)
-        return nil
-      end
-      
-      unless target_project.trackers.include?(tracker)
-        add_error(I18n.t('task_automation.log.tracker_not_in_project', tracker_name: tracker_name, project_name: target_project.name), template_issue.id)
-        return nil
-      end
-      
-      tracker
-    end
-
-    def get_assignee(template_issue)
-      assignee_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
-      
-      unless assignee_field_id.present?
-        add_error(I18n.t('task_automation.log.assignee_field_not_configured', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
-        return nil
-      end
-      
-      # Получаем строку для поиска и очищаем от пробелов
-      assignee_search_string = template_issue.custom_field_value(assignee_field_id)
-      
-      unless assignee_search_string.present?
-        add_error(I18n.t('task_automation.log.assignee_field_empty', field_name: FIELD_ASSIGNMENT_GROUP), template_issue.id)
-        return nil
-      end
-      
-      # Очищаем от начальных и конечных пробелов
-      assignee_search_string = assignee_search_string.to_s.strip 
-      
-      Rails.logger.debug "[TaskAutomation] get_assignee: search_string='#{assignee_search_string}'"
-      
-      # Ищем пользователя или группу по фрагменту имени
-      assignee = find_user_or_group_by_name_fragment(assignee_search_string)
-      
-      unless assignee
-        add_error(I18n.t('task_automation.log.assignee_not_found', search_string: assignee_search_string), template_issue.id)
-        return nil
-      end
-      
-      Rails.logger.debug "[TaskAutomation] get_assignee: found: #{assignee.class} - #{assignee.name}"
-      
-      assignee
-    end
-
-    # ============================================================================
-    # Поиск пользователя или группы по фрагменту имени
-    # ============================================================================
-    def find_user_or_group_by_name_fragment(search_string)
-      return nil unless search_string.present?
-      
-      search_lower = search_string.downcase
-      
-      # Сначала ищем среди пользователей (firstname + lastname)
-      User.active.each do |user|
-        full_name = "#{user.firstname} #{user.lastname}".strip.downcase
-        login_name = user.login.downcase
-        
-        if full_name.include?(search_lower) || login_name.include?(search_lower)
-          Rails.logger.debug "[TaskAutomation] find_user_or_group_by_name_fragment: found user: #{user.login} (#{full_name})"
-          return user
-        end
-      end
-      
-      # Если пользователь не найден, ищем среди групп
-      Group.all.each do |group|
-        if group.name.downcase.include?(search_lower)
-          Rails.logger.debug "[TaskAutomation] find_user_or_group_by_name_fragment: found group: #{group.name}"
-          return group
-        end
-      end
-      
-      nil
-    end
-
     def create_target_issue(template_issue, target_project, target_tracker, assignee)
       issue = nil
       
@@ -494,21 +353,35 @@ module TaskAutomation
         issue.tracker = target_tracker
         issue.author = User.find(@settings[:author_id])
         issue.subject = template_issue.subject
-        issue.description = template_issue.description
+        
+        # ✅ ИЗМЕНЕНО: Получаем поля и использованные строки
+        parse_result = parse_custom_fields_from_description(template_issue.description)
+        custom_fields_from_description = parse_result[:fields]
+        used_lines = parse_result[:used_lines]
+        
+        # ✅ ИЗМЕНЕНО: Удаляем использованные строки из описания
+        remaining_lines = template_issue.description.lines.reject { |line| used_lines.include?(line.chomp) }
+        issue.description = remaining_lines.join
+        
         issue.status = target_tracker.default_status
         issue.priority = IssuePriority.default
         
-        # ✅ ИЗМЕНЕНО: Дата начала = дате следующего выполнения из шаблона
+        # Дата начала = дате следующего выполнения из шаблона
         date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
         next_date = template_issue.custom_field_value(date_field_id)
         issue.start_date = next_date.to_date if next_date.present?
         
         issue.assigned_to = assignee
         
-        # ✅ ОТКЛЮЧАЕМ уведомления перед сохранением
+        # Отключаем уведомления перед сохранением
         issue.notify = false
         
-        custom_fields_from_description = parse_custom_fields_from_description(template_issue.description)
+        # ✅ ИЗМЕНЕНО: Сначала устанавливаем стандартные поля
+        unless custom_fields_from_description.empty?
+          set_standard_fields(issue, custom_fields_from_description, template_issue.id)
+        end
+        
+        # Затем устанавливаем кастомные поля
         unless custom_fields_from_description.empty?
           set_custom_fields(issue, custom_fields_from_description, template_issue.id)
         end
@@ -527,16 +400,63 @@ module TaskAutomation
       issue.reload if issue.persisted?
       
       issue
+    rescue ActiveRecord::RecordInvalid => e
+      error_message = extract_validation_error_message(e, target_project, assignee, template_issue.id) 
+      add_error(error_message, template_issue.id)
+      Rails.logger.error "[TaskAutomation] create_target_issue: Ошибка валидации - #{e.message}"
+      nil
     rescue => e
       add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
       Rails.logger.error "[TaskAutomation] create_target_issue: Ошибка - #{e.class}: #{e.message}"
       nil
     end
 
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Извлечение понятного сообщения об ошибке валидации
+    # ============================================================================
+    def extract_validation_error_message(exception, target_project, assignee, template_issue_id)
+      error_message = exception.message
+      
+      # ✅ Проверяем, связана ли ошибка с назначенным
+      if error_message.include?('assigned_to') || error_message.include?('Назначен') || error_message.include?('Назначена')
+        assignee_name = assignee.is_a?(User) ? assignee.name : assignee.is_a?(Group) ? assignee.name : assignee.to_s
+        
+        # ✅ Проверяем, является ли ошибка "пользователь не в проекте"
+        if error_message.include?('неверное') || error_message.include?('invalid') || error_message.include?('недопустимое')
+          return I18n.t('task_automation.log.issue_assignee_not_in_project',
+                        assignee_name: assignee_name,
+                        project_name: target_project.name)
+        else
+          return I18n.t('task_automation.log.issue_assignee_invalid',
+                        assignee_name: assignee_name,
+                        project_name: target_project.name)
+        end
+      end
+      
+      # ✅ Для остальных ошибок валидации — форматируем сообщение
+      if error_message.include?('Validation failed')
+        # Извлекаем имена полей и причины из ошибок
+        fields_errors = []
+        exception.record.errors.full_messages.each do |msg|
+          fields_errors << msg
+        end
+        
+        if fields_errors.any?
+          return I18n.t('task_automation.log.issue_validation_failed',
+                        field: fields_errors.first.split(' ').first,
+                        reason: fields_errors.first)
+        end
+      end
+      
+      # ✅ По умолчанию — возвращаем оригинальное сообщение
+      I18n.t('task_automation.log.issue_save_error', error: error_message)
+    end
+
     def parse_custom_fields_from_description(description)
-      return {} unless description.present?
+      return { fields: {}, used_lines: [] } unless description.present?
       
       custom_fields = {}
+      used_lines = []
       
       description.lines.each do |line|
         if line.include?(':')
@@ -544,27 +464,36 @@ module TaskAutomation
           if parts.length == 2
             field_name = parts[0].strip
             field_value = parts[1].strip
-            custom_fields[field_name] = field_value unless field_name.blank?
+            
+            unless field_name.blank?
+              custom_fields[field_name] = field_value
+              used_lines << line.chomp  # Сохраняем оригинальную строку для удаления
+            end
           end
         end
       end
       
-      custom_fields
+      { fields: custom_fields, used_lines: used_lines }
     end
 
     def set_custom_fields(issue, custom_fields_hash, template_issue_id)
       custom_fields_hash.each do |field_name, field_value|
+        # Пропускаем стандартные поля - они обрабатываются отдельно
+        next if TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING.key?(field_name)
+        
         field_id = TaskAutomation::Service.get_custom_field_id_by_name(field_name)
         
         unless field_id.present?
-          add_error(I18n.t('task_automation.log.field_not_found', field_name: field_name), template_issue_id)
+          add_warning(I18n.t('task_automation.log.field_not_found', field_name: field_name), template_issue_id)
           next
         end
         
         custom_field = CustomField.find_by(id: field_id)
         
         unless custom_field && custom_field.trackers.include?(issue.tracker)
-          add_error(I18n.t('task_automation.log.field_not_available', field_name: field_name, tracker_name: issue.tracker.name), template_issue_id)
+          add_warning(I18n.t('task_automation.log.field_not_available', 
+                             field_name: field_name, 
+                             tracker_name: issue.tracker.name), template_issue_id)
           next
         end
         
@@ -641,7 +570,19 @@ module TaskAutomation
       Rails.logger.info "[TaskAutomation] copy_attachments: Завершено"
     end
 
+    # ============================================================================
+    # Добавление наблюдателей к задаче (устаревший метод, использовать calculate_watcher_ids + add_watchers_to_issue)
+    # ============================================================================
     def add_watchers(target_issue, template_issue, assignee)
+      # Для обратной совместимости
+      watcher_ids = calculate_watcher_ids(template_issue, assignee)
+      add_watchers_to_issue(target_issue, watcher_ids)
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Вычисление списка ID наблюдателей (один раз для всех задач)
+    # ============================================================================
+    def calculate_watcher_ids(template_issue, assignee)
       watcher_ids = []
       watcher_field_id = @custom_field_ids[FIELD_WATCHER_GROUPS]
       
@@ -653,13 +594,11 @@ module TaskAutomation
             watcher_fragment = watcher_fragment.strip
             next if watcher_fragment.blank?
             
-            watcher = find_user_or_group_by_name_fragment(watcher_fragment)
+            watcher = TaskAutomation::Service.find_user_or_group_by_name_fragment(watcher_fragment)
             
             if watcher
-              # ✅ ИСПРАВЛЕНО: Добавляем ID наблюдателя напрямую (и пользователя, и группу)
               watcher_ids << watcher.id
-              
-              Rails.logger.debug "[TaskAutomation] add_watchers: добавлен наблюдатель #{watcher.class} - #{watcher.name}"
+              Rails.logger.debug "[TaskAutomation] calculate_watcher_ids: добавлен наблюдатель #{watcher.class} - #{watcher.name}"
             else
               add_warning(I18n.t('task_automation.log.watcher_not_found', 
                                search_string: watcher_fragment), template_issue.id)
@@ -668,23 +607,49 @@ module TaskAutomation
         end
       end
       
-      # ✅ ИСПОЛЬЗУЕМ watcher_user_ids= для добавления наблюдателей
-      if watcher_ids.any?
-        # Исключаем assignee из watcher_ids на всякий случай
+      # Исключаем assignee из watcher_ids
+      if assignee.present?
         assignee_ids = []
         if assignee.is_a?(User)
           assignee_ids << assignee.id
         elsif assignee.is_a?(Group)
-          assignee_ids << assignee.id  # ✅ Добавляем ID группы, а не пользователей
+          assignee_ids << assignee.id
         end
         
         watcher_ids = watcher_ids - assignee_ids
+      end
+      
+      watcher_ids
+    end
+
+    # ============================================================================
+    # НОВЫЙ МЕТОД: Добавление наблюдателей к задаче (по готовому списку ID)
+    # ============================================================================
+    def add_watchers_to_issue(issue, watcher_ids)
+      return if watcher_ids.empty?
+      
+      # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
+      max_retries = 3
+      retry_count = 0
+      
+      begin
+        existing_watcher_ids = issue.watcher_user_ids
+        issue.watcher_user_ids = (existing_watcher_ids + watcher_ids).uniq
         
-        existing_watcher_ids = target_issue.watcher_user_ids
-        target_issue.watcher_user_ids = (existing_watcher_ids + watcher_ids).uniq
-        target_issue.save!(notifications: false)
+        issue.save!(notifications: false)
+        Rails.logger.debug "[TaskAutomation] add_watchers_to_issue: добавлено #{watcher_ids.count} наблюдателей к задаче ##{issue.id}"
         
-        Rails.logger.debug "[TaskAutomation] add_watchers: добавлено #{watcher_ids.count} наблюдателей (включая группы)"
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
+        
+        if retry_count < max_retries
+          Rails.logger.warn "[TaskAutomation] add_watchers_to_issue: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+          issue.reload
+          retry
+        else
+          Rails.logger.error "[TaskAutomation] add_watchers_to_issue: StaleObjectError после #{max_retries} попыток"
+          # Не прерываем выполнение, это не критично
+        end
       end
     end
 
@@ -708,56 +673,96 @@ module TaskAutomation
     end
 
     # ============================================================================
-    # Расчет дат для задачи без подзадач
+    # Расчет дат для задачи без подзадач (или для родительской задачи)
     # ============================================================================
     def calculate_single_issue_dates(issue, template_issue)
-      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: НАЧАЛО - issue_id=#{issue.id}, lock_version=#{issue.lock_version} "
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: НАЧАЛО - issue_id=#{issue.id}, lock_version=#{issue.lock_version}"
       
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
-      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]  # ✅ ЗАМЕНЕНО
+      end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]
       
-      duration = duration_field_id.present? ?   
+      # ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration_field_id=#{duration_field_id.inspect}"
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: FIELD_DURATION_DAYS='#{FIELD_DURATION_DAYS}'"
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: @custom_field_ids=#{@custom_field_ids.inspect}"
+      
+      # Проверка start_date
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: issue.start_date=#{issue.start_date.inspect}"
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: template_issue.id=#{template_issue.id}"
+      
+      # Получение duration
+      raw_duration = template_issue.custom_field_value(duration_field_id) if duration_field_id.present?
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: raw_duration=#{raw_duration.inspect} (class: #{raw_duration.class})"
+      
+      duration = duration_field_id.present? ? 
                   (template_issue.custom_field_value(duration_field_id).to_i rescue 0) : 0
       
-      # ✅ ПРОВЕРКА: Конец в рабочий день
+      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration=#{duration}"
+      
       end_on_working_day = end_on_working_day_field_id.present? && 
                           (template_issue.custom_field_value(end_on_working_day_field_id).to_i == 1)
       
       if duration == 0
         issue.due_date = issue.start_date
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration=0, due_date=start_date=#{issue.due_date.inspect}"
       else
         issue.due_date = issue.start_date + duration.days
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: due_date=start_date(#{issue.start_date}) + #{duration}.days = #{issue.due_date.inspect}"
       end
       
-      # ✅ КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
       if end_on_working_day && issue.due_date.present? && !TaskAutomation::Service.working_day?(issue.due_date)
-        Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: due_date выпадает на выходной (#{issue.due_date.strftime('%A')}), сдвигаем НАЗАД "
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: due_date выпадает на выходной (#{issue.due_date.strftime('%A')}), сдвигаем НАЗАД"
         
-        # Сдвигаем due_date НАЗАД к рабочему дню
         adjusted_due_date = TaskAutomation::Service.shift_to_working_day(issue.due_date, direction: :backward)
-        
-        # Рассчитываем разницу в днях
         days_shift = (issue.due_date - adjusted_due_date).to_i
-        
-        # ⚠️ Сдвигаем start_date НАЗАД на ту же разницу (для сохранения длительности)
         issue.start_date = issue.start_date - days_shift.days
         issue.due_date = adjusted_due_date
         
-        Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: Сдвинуто - start_date=#{issue.start_date}, due_date=#{issue.due_date} "
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: Сдвинуто - start_date=#{issue.start_date}, due_date=#{issue.due_date}"
       end
       
-      # Перезагружаем перед сохранением!
-      #issue.reload
-      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: После reload - lock_version=#{issue.lock_version} "
-      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: ПЕРЕД сохранением - due_date=#{issue.due_date} "
+      # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
+      max_retries = 3
+      retry_count = 0
+      
+      begin
+        # ✅ ВАЖНО: Сохраняем вычисленные даты перед reload
+        calculated_due_date = issue.due_date
+        calculated_start_date = issue.start_date
+        
+        # Reload для получения актуального lock_version
+        issue.reload
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: После reload - lock_version=#{issue.lock_version}"
+        
+        # ✅ ВОССТАНАВЛИВАЕМ вычисленные даты после reload
+        issue.due_date = calculated_due_date
+        issue.start_date = calculated_start_date
+        
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: ПЕРЕД сохранением - due_date=#{issue.due_date.inspect}"
 
-      issue.save!(notifications: false)
+        issue.save!(notifications: false)
 
-      Rails.logger.info  "[TaskAutomation] calculate_single_issue_dates: ПОСЛЕ сохранения - due_date=#{issue.due_date} "
+        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: ПОСЛЕ сохранения - due_date=#{issue.due_date.inspect}"
+        
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
+        
+        if retry_count < max_retries
+          Rails.logger.warn "[TaskAutomation] calculate_single_issue_dates: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+          retry
+        else
+          Rails.logger.error "[TaskAutomation] calculate_single_issue_dates: StaleObjectError после #{max_retries} попыток"
+          add_error(I18n.t('task_automation.log.stale_object_error', 
+                           issue_id: issue.id, 
+                           retries: max_retries), template_issue.id)
+          raise
+        end
+      end
     end
 
     # ============================================================================
     # Расчет даты завершения подзадачи
+    # ОТЛИЧИЕ ОТ РОДИТЕЛЬСКОЙ: сдвиг ВПЕРЁД, start_date НЕ меняется
     # ============================================================================
     def calculate_subtask_due_date(subtask, subtask_template)
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
@@ -779,6 +784,7 @@ module TaskAutomation
       end
       
       # КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
+      # ✅ ДЛЯ ПОДЗАДАЧ: сдвигаем ВПЕРЁД (не назад как у основных задач)
       if end_on_working_day && subtask.due_date.present? && !TaskAutomation::Service.working_day?(subtask.due_date)
         Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: due_date выпадает на выходной (#{subtask.due_date.strftime('%A')}), сдвигаем ВПЕРЁД"
         
@@ -791,20 +797,48 @@ module TaskAutomation
         Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Сдвинуто - start_date=#{subtask.start_date}, due_date=#{subtask.due_date}"
       end
       
-      # Сохраняем и перезагружаем для гарантии актуальных данных
-      subtask.save!(notifications: false)
-      subtask.reload
+      # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
+      max_retries = 3
+      retry_count = 0
       
-      # ✅ Гарантированный возврат даты (даже если что-то пошло не так)
-      result_date = subtask.due_date || subtask.start_date
-      Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Подзадача ##{subtask.id} сохранена - start_date=#{subtask.start_date}, due_date=#{result_date}"
-      
-      result_date
+      begin
+        # Сохраняем и перезагружаем для гарантии актуальных данных
+        subtask.save!(notifications: false)
+        subtask.reload
+        
+        # Гарантированный возврат даты (даже если что-то пошло не так)
+        result_date = subtask.due_date || subtask.start_date
+        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Подзадача ##{subtask.id} сохранена - start_date=#{subtask.start_date}, due_date=#{result_date}"
+        
+        result_date
+        
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
+        
+        if retry_count < max_retries
+          Rails.logger.warn "[TaskAutomation] calculate_subtask_due_date: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+          subtask.reload
+          retry
+        else
+          Rails.logger.error "[TaskAutomation] calculate_subtask_due_date: StaleObjectError после #{max_retries} попыток"
+          add_error(I18n.t('task_automation.log.stale_object_error', 
+                           issue_id: subtask.id, 
+                           retries: max_retries), subtask_template.id)
+          nil
+        end
+      end
     end
 
-    def process_subtasks(template_issue, target_issue, target_project, assignment_group)
+    # ============================================================================
+    # Обработка подзадач шаблона
+    # ============================================================================
+    def process_subtasks(template_issue, target_issue, target_project, assignment_group, watcher_ids = [])
       subtasks_created = 0
       subtasks = template_issue.children
+      
+      # ✅ УДАЛЕНО: unless target_issue.tracker.subtask?
+      # Эта проверка некорректна - target_issue это родительская задача, она не может быть подзадачей
+      # Проверка трекеров подзадач уже выполнена в validate_subtask_trackers ДО создания задачи
       
       sorted_subtasks = sort_subtasks_by_order(subtasks)
       current_start_date = target_issue.start_date
@@ -821,9 +855,10 @@ module TaskAutomation
             target_issue, 
             target_project, 
             assignment_group,
-            group_start_date
+            group_start_date,
+            watcher_ids
           )
-          
+
           unless target_subtask
             return [false, 0]
           end
@@ -831,7 +866,7 @@ module TaskAutomation
           subtasks_created += 1
           subtask_end_date = calculate_subtask_due_date(target_subtask, subtask_template)
           
-          # ✅ Убрана проверка на present? - due_date всегда есть
+          # due_date всегда есть (гарантировано методом calculate_subtask_due_date)
           if group_max_end.blank? || subtask_end_date > group_max_end
             group_max_end = subtask_end_date
           end
@@ -850,7 +885,7 @@ module TaskAutomation
         end
       end
       
-      # Проверка - не вышла ли цепочка подзадач за пределы срока родителя
+      # ✅ Проверка - не вышла ли цепочка подзадач за пределы срока родителя
       if target_issue.due_date.present? && max_end_date.present?
         if max_end_date > target_issue.due_date
           days_overdue = (max_end_date - target_issue.due_date).to_i
@@ -884,11 +919,19 @@ module TaskAutomation
       subtask.custom_field_value(order_field_id).to_i
     end
 
-    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date)  
+    # ============================================================================
+    # Создание подзадачи для целевой задачи
+    # ============================================================================
+    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date, watcher_ids = [])
       subtask = Issue.new
-      subtask.project = target_project
+      subtask.project = target_project 
       
-      subtask_tracker = get_target_tracker(subtask_template, target_project)
+      # Получаем трекер подзадачи
+      tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
+      tracker_name = subtask_template.custom_field_value(tracker_field_id) if tracker_field_id.present?
+      
+      subtask_tracker = TaskAutomation::Service.get_target_tracker_by_name(
+        tracker_name, target_project, @custom_field_ids)
       
       unless subtask_tracker
         add_error(I18n.t('task_automation.log.subtask_tracker_not_found'), subtask_template.id)
@@ -896,28 +939,68 @@ module TaskAutomation
       end
 
       subtask.tracker = subtask_tracker
-      # ✅ ИСПРАВЛЕНО: используем parent_id вместо parent_issue=
       subtask.parent_id = parent_issue.id
       subtask.author = User.find(@settings[:author_id])
       subtask.subject = subtask_template.subject
-      subtask.description = subtask_template.description
+      
+      # ✅ ИЗМЕНЕНО: Получаем поля и использованные строки
+      parse_result = parse_custom_fields_from_description(subtask_template.description)
+      custom_fields_from_description = parse_result[:fields]
+      used_lines = parse_result[:used_lines]
+      
+      # ✅ ИЗМЕНЕНО: Удаляем использованные строки из описания
+      remaining_lines = subtask_template.description.lines.reject { |line| used_lines.include?(line.chomp) }
+      subtask.description = remaining_lines.join
+      
       subtask.start_date = start_date
       subtask.assigned_to = assignment_group
       subtask.status = subtask_tracker.default_status
       
-      custom_fields = parse_custom_fields_from_description(subtask_template.description)
-      unless custom_fields.empty?
-        set_custom_fields(subtask, custom_fields, subtask_template.id)
+      # ✅ ИЗМЕНЕНО: Сначала устанавливаем стандартные поля
+      unless custom_fields_from_description.empty?
+        set_standard_fields(subtask, custom_fields_from_description, subtask_template.id)
       end
       
-      # Сохраняем подзадачу сразу (наблюдатели для подзадач не добавляются)
-      subtask.save!(notifications: false)
-      copy_attachments(subtask_template, subtask)
+      # Затем устанавливаем кастомные поля
+      unless custom_fields_from_description.empty?
+        set_custom_fields(subtask, custom_fields_from_description, subtask_template.id)
+      end
       
-      subtask
-    rescue => e
-      add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
-      nil
+      # Сохранение подзадачи
+      max_retries = 3
+      retry_count = 0
+      
+      begin
+        subtask.save!(notifications: false)
+
+        # Добавляем наблюдателей к подзадаче
+        if watcher_ids.any?
+          add_watchers_to_issue(subtask, watcher_ids)
+        end
+
+        copy_attachments(subtask_template, subtask)
+
+        Rails.logger.info "[TaskAutomation] create_target_subtask: Подзадача создана - issue_id=#{subtask.id}"
+        
+        subtask
+        
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
+        
+        if retry_count < max_retries
+          Rails.logger.warn "[TaskAutomation] create_target_subtask: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+          retry
+        else
+          Rails.logger.error "[TaskAutomation] create_target_subtask: StaleObjectError после #{max_retries} попыток"
+          add_error(I18n.t('task_automation.log.stale_object_error', 
+                           issue_id: subtask.id, 
+                           retries: max_retries), subtask_template.id) 
+          nil
+        end
+      rescue => e
+        add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
+        nil
+      end
     end
 
     # ============================================================================
@@ -1304,17 +1387,14 @@ module TaskAutomation
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: user_id=#{user.id}, login=#{user.login}"
         
         # Инициализируем журнал для задачи-шаблона
-        # ✅ ИСПРАВЛЕНО: Инициализируем журнал только если target_issue_id присутствует
         if target_issue_id.present?
           template_issue.init_journal(user, I18n.t('task_automation.journal.task_created', issue_id: target_issue_id))
         else
           # Если target_issue_id пустой, создаем журнал без заметки (только для изменения даты)
-          template_issue.init_journal(user, "")
+          template_issue.init_journal(user, " ")
         end
 
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: журнал инициализирован"
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.persisted?=#{template_issue.current_journal.persisted?}"
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: current_journal.notes='#{template_issue.current_journal.notes}'"
         
         # Получаем ID кастомного поля "Дата следующего выполнения"
         date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
@@ -1334,29 +1414,45 @@ module TaskAutomation
           value: new_next_date.present? ? format_date(new_next_date.to_date) : nil
         )
         
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: journal_detail создан - property=#{journal_detail.property}, prop_key=#{journal_detail.prop_key}, old_value=#{journal_detail.old_value}, value=#{journal_detail.value}"
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: journal_detail создан"
         
         template_issue.current_journal.details << journal_detail
         
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: detail добавлен в журнал, details.count=#{template_issue.current_journal.details.count}"
+        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: detail добавлен в журнал"
         
-        # Сохраняем задачу - журнал сохранится через callback create_journal
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПЕРЕД сохранением template_issue"
+        # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
+        max_retries = 3
+        retry_count = 0
         
-        template_issue.save!(notifications: false)
+        begin
+          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПЕРЕД сохранением template_issue"
+          
+          template_issue.save!(notifications: false)
+          
+          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПОСЛЕ сохранения template_issue"
+          
+        rescue ActiveRecord::StaleObjectError => e
+          retry_count += 1
+          
+          if retry_count < max_retries
+            Rails.logger.warn "[TaskAutomation] log_task_creation_in_template_history: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+            template_issue.reload
+            retry
+          else
+            Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: StaleObjectError после #{max_retries} попыток"
+            add_warning(I18n.t('task_automation.log.stale_object_warning', 
+                              issue_id: template_issue.id, 
+                              retries: max_retries), template_issue.id)
+            # Не прерываем выполнение, это не критично
+          end
+        end
         
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПОСЛЕ сохранения template_issue"
-        
-        # Проверяем, сохранился ли журнал
         last_journal = template_issue.journals.order(:id => :desc).first
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal_id=#{last_journal&.id}"
         
         if last_journal
           Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.notes='#{last_journal.notes}'"
           Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.details.count=#{last_journal.details.count}"
-          last_journal.details.each do |detail|
-            Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history:   detail - property=#{detail.property}, prop_key=#{detail.prop_key}, old_value=#{detail.old_value}, value=#{detail.value}"
-          end
         end
         
         Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: Запись добавлена в историю шаблона ##{template_issue.id}"
@@ -1581,59 +1677,37 @@ module TaskAutomation
     end
 
     # ============================================================================
-    # НОВЫЙ МЕТОД: Обновление даты следующего выполнения на указанную
+    # Обновление даты следующего выполнения на указанную
     # ============================================================================
     def update_next_execution_date_to(template_issue, new_date)
       date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
       return unless date_field_id.present? && new_date.present?
       
       template_issue.custom_field_values = { date_field_id => new_date }
-      template_issue.save!(notifications: false)
       
-      Rails.logger.info "[TaskAutomation] update_next_execution_date_to: Дата обновлена на #{new_date}  "
-    end
-
-    # ============================================================================
-    # НОВЫЙ МЕТОД: Проверка трекеров подзадач перед обработкой шаблона
-    # Выполняется ДО создания родительской задачи
-    # ============================================================================
-    def validate_subtask_trackers(template_issue, target_project)
-      # Если у шаблона нет подзадач — проверка не нужна
-      return { valid: true, errors: [] } unless template_issue.children.any?
+      # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
+      max_retries = 3
+      retry_count = 0
       
-      errors = []
-      subtask_templates = template_issue.children
-      
-      # Получаем ID кастомного поля "Родительская задача" для проверки
-      parent_issue_field_id = @custom_field_ids[FIELD_PARENT_ISSUE]
-      
-      subtask_templates.each do |subtask_template|
-        # === ПРОВЕРКА 1: Трекер должен существовать в проекте назначения ===
-        subtask_tracker = get_target_tracker(subtask_template, target_project)
+      begin
+        template_issue.save!(notifications: false)
+        Rails.logger.info "[TaskAutomation] update_next_execution_date_to: Дата обновлена на #{new_date}"
         
-        unless subtask_tracker
-          errors << I18n.t('task_automation.log.subtask_tracker_not_found_in_template',
-                           subtask_id: subtask_template.id)
-          next
-        end
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
         
-        # === ПРОВЕРКА 2: Трекер должен поддерживать подзадачи ===
-        # ✅ Проверяем, доступно ли поле "Родительская задача" для этого трекера
-        if parent_issue_field_id.present?
-          parent_field = CustomField.find_by(id: parent_issue_field_id)
-          
-          if parent_field
-            unless parent_field.trackers.include?(subtask_tracker)
-              errors << I18n.t('task_automation.log.subtask_tracker_no_parent_field',
-                               tracker_name: subtask_tracker.name,
-                               subtask_id: subtask_template.id,
-                               field_name: FIELD_PARENT_ISSUE)
-            end
-          end
+        if retry_count < max_retries
+          Rails.logger.warn "[TaskAutomation] update_next_execution_date_to: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
+          template_issue.reload
+          retry
+        else
+          Rails.logger.error "[TaskAutomation] update_next_execution_date_to: StaleObjectError после #{max_retries} попыток"
+          add_warning(I18n.t('task_automation.log.stale_object_warning', 
+                            issue_id: template_issue.id, 
+                            retries: max_retries), template_issue.id)
+          # Не прерываем выполнение
         end
       end
-      
-      { valid: errors.empty?, errors: errors }
     end
 
     # ============================================================================
@@ -1663,6 +1737,162 @@ module TaskAutomation
           )
         end
       end
+    end
+
+    def set_standard_fields(issue, custom_fields_hash, template_issue_id)
+      TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING.each do |field_label, field_attr|
+        next unless custom_fields_hash.key?(field_label)
+        
+        field_value = custom_fields_hash[field_label]
+        
+        case field_attr
+        when :category_id
+          set_category_field(issue, field_value, template_issue_id)
+        when :fixed_version_id
+          set_version_field(issue, field_value, template_issue_id)
+        when :estimated_hours
+          set_estimated_hours_field(issue, field_value, template_issue_id)
+        when :done_ratio
+          set_done_ratio_field(issue, field_value, template_issue_id)
+        when :priority_id
+          set_priority_field(issue, field_value, template_issue_id)
+        end
+      end
+    end
+
+    # ============================================================================
+    # Метод установки категории
+    # ============================================================================
+    def set_category_field(issue, field_value, template_issue_id)
+      return unless field_value.present?
+      
+      # ✅ Ищем категорию ТОЛЬКО в текущем проекте
+      category = IssueCategory.find_by(project: issue.project, name: field_value)
+      
+      unless category
+        add_warning(I18n.t('task_automation.log.standard_field_not_found', 
+                           field_name: 'Категория', 
+                           field_value: field_value), template_issue_id)
+        return
+      end
+      
+      unless issue.tracker.core_fields.include?('category_id')
+        add_warning(I18n.t('task_automation.log.standard_field_not_available', 
+                           field_name: 'Категория', 
+                           tracker_name: issue.tracker.name), template_issue_id)
+        return
+      end
+      
+      issue.category = category
+      Rails.logger.info "[TaskAutomation] set_category_field: Категория установлена - #{category.name}"
+    end
+
+    # ============================================================================
+    # Метод установки версии
+    # ============================================================================
+    def set_version_field(issue, field_value, template_issue_id)
+      return unless field_value.present?
+      
+      # ✅ Ищем версию ТОЛЬКО в текущем проекте
+      version = issue.project.shared_versions.find_by(name: field_value)
+      
+      unless version
+        add_warning(I18n.t('task_automation.log.standard_field_not_found', 
+                           field_name: 'Версия', 
+                           field_value: field_value), template_issue_id)
+        return
+      end
+      
+      unless issue.tracker.core_fields.include?('fixed_version_id')
+        add_warning(I18n.t('task_automation.log.standard_field_not_available', 
+                           field_name: 'Версия', 
+                           tracker_name: issue.tracker.name), template_issue_id)
+        return
+      end
+      
+      issue.fixed_version = version
+      Rails.logger.info "[TaskAutomation] set_version_field: Версия установлена - #{version.name}"
+    end
+
+    # ============================================================================
+    # Метод установки оценки временных затрат
+    # ============================================================================
+    def set_estimated_hours_field(issue, field_value, template_issue_id)
+      return unless field_value.present?
+      
+      estimated_hours = field_value.to_f
+      
+      unless estimated_hours > 0
+        add_warning(I18n.t('task_automation.log.standard_field_invalid_value', 
+                           field_name: 'Оценка временных затрат', 
+                           field_value: field_value), template_issue_id)
+        return
+      end
+      
+      unless issue.tracker.core_fields.include?('estimated_hours')
+        add_warning(I18n.t('task_automation.log.standard_field_not_available', 
+                           field_name: 'Оценка временных затрат', 
+                           tracker_name: issue.tracker.name), template_issue_id)
+        return
+      end
+      
+      issue.estimated_hours = estimated_hours
+      Rails.logger.info "[TaskAutomation] set_estimated_hours_field: Оценка установлена - #{estimated_hours}"
+    end
+
+    # ============================================================================
+    # Метод установки готовности (в процентах)
+    # ============================================================================
+    def set_done_ratio_field(issue, field_value, template_issue_id)
+      return unless field_value.present?
+      
+      # Удаляем символ % если есть и преобразуем в число
+      done_ratio = field_value.to_s.gsub('%', '').strip.to_i
+      
+      unless done_ratio >= 0 && done_ratio <= 100
+        add_warning(I18n.t('task_automation.log.standard_field_invalid_value', 
+                           field_name: 'Готовность', 
+                           field_value: field_value), template_issue_id)
+        return
+      end
+      
+      unless issue.tracker.core_fields.include?('done_ratio')
+        add_warning(I18n.t('task_automation.log.standard_field_not_available', 
+                           field_name: 'Готовность', 
+                           tracker_name: issue.tracker.name), template_issue_id)
+        return
+      end
+      
+      issue.done_ratio = done_ratio
+      Rails.logger.info "[TaskAutomation] set_done_ratio_field: Готовность установлена - #{done_ratio}%"
+    end
+
+    # ============================================================================
+    # Метод установки приоритета
+    # ============================================================================
+    def set_priority_field(issue, field_value, template_issue_id)
+      return unless field_value.present?
+      
+      # ✅ Ищем по имени среди активных IssuePriority
+      priority = IssuePriority.active.find_by(name: field_value)
+      
+      unless priority
+        add_warning(I18n.t('task_automation.log.standard_field_not_found', 
+                           field_name: 'Приоритет', 
+                           field_value: field_value), template_issue_id)
+        return
+      end
+      
+      # Проверяем доступность поля для трекера
+      unless issue.tracker.core_fields.include?('priority_id')
+        add_warning(I18n.t('task_automation.log.standard_field_not_available', 
+                           field_name: 'Приоритет', 
+                           tracker_name: issue.tracker.name), template_issue_id)
+        return
+      end
+      
+      issue.priority = priority
+      Rails.logger.info "[TaskAutomation] set_priority_field: Приоритет установлен - #{priority.name}"
     end
 
   end
