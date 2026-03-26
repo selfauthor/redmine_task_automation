@@ -66,7 +66,6 @@ touch tmp/restart.txt
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Создание полей и трекеров (полная таблица) |
 | [docs/USAGE.md](docs/USAGE.md) | Создание шаблонов и расписаний |
 | [docs/CRON_SETUP.md](docs/CRON_SETUP.md) | Настройка автоматического запуска |
-| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Решение проблем |
 
 ---
 
@@ -76,7 +75,7 @@ touch tmp/restart.txt
 |---|---|
 | **Имя** | Якушев Андрей Викторович |
 | **Email** | iakushevav@mosreg.ru |
-| **Организация** | Правительство Московской области |
+| **Организация** | ГБУ МО Спеццентр "Звенигород" |
 
 ---
 
