@@ -1,86 +1,307 @@
+# ============================================================================
+# File: config/locales/en.yml
+# Purpose: Redmine Task Automation Plugin Localization (English)
+# ============================================================================
 en:
+  # --------------------------------------------------------------------------
+  # Plugin Metadata
+  # --------------------------------------------------------------------------
   label_task_automation: "Task Automation"
-
+  plugin_redmine_task_automation: "Redmine Task Automation"
+  
   task_automation:
-    plugin_name: "Redmine Task Automation"
-    plugin_description: "Automatic task creation based on date in custom fields"
-    
-    settings:
-      general_settings: "General Settings"
-      notification_settings: "Notification Settings"
-      
-      source_project_id: "Source Project (ID)"
-      author_id: "Task Author (User ID)"
-      tracker_id: "Template Tracker (ID)"
-      error_notification_email: "Error Notification Email"
-      
+    # ------------------------------------------------------------------------
+    # Interface Buttons
+    # ------------------------------------------------------------------------
+    buttons:
+      clear_test_results: "Clear test results"
+      run_now: "Run now"
+      run_now_hint: "Immediately processes all task templates. Creates new tasks based on templates whose execution date has arrived"
       save: "Save"
+      save_hint: "Saves current plugin settings to database"
       test: "Test"
-      reset: "Reset"
+      test_hint: "Verifies settings correctness: presence of project, user, tracker and all required custom fields"
     
-    log_messages:
-      processing_start: "Starting task automation processing"
-      processing_end: "Task automation processing completed"
-      settings_invalid: "Settings are invalid, processing aborted"
-      templates_not_found: "No template tasks found"
-      templates_found: "Found %{count} template tasks"
-      template_processing: "Processing template task #%{id}"
-      
-      task_created: "Created task #%{id} \"%{subject}\"%{subtasks}"
-      subtasks_info: " (and %{count} subtasks)"
-      tasks_summary: "Created %{main} main tasks and %{sub} subtasks"
-      no_tasks_created: "No tasks created"
-      
-      notification_sent: "Error notification sent to %{email}"
-      notification_failed: "Failed to send notification: %{error}"
-      
-      project_not_found: "Specified project not found"
-      tracker_not_found: "Specified tracker not found"
-      group_not_found: "Specified user group not found"
-      validation_error: "Validation error: %{message}"
-      unexpected_error: "Unexpected error: %{message}"
-      
-      subtask_tracker_not_found: "Subtask #%{id}: Specified tracker not found"
-      subtask_tracker_not_allowed: "Subtask #%{id}: Tracker does not support subtasks"
-      
-      custom_field_not_exists: "Non-existent field specified in template: %{line}"
-      required_field_missing: "Required field missing in template: %{field}"
-      
-      source_project_not_found: "Source project with ID %{id} not found"
-      author_not_found: "User with ID %{id} not found"
-      tracker_not_found_by_id: "Tracker with ID %{id} not found"
-      invalid_email_format: "Invalid email format for notifications"
+    # ------------------------------------------------------------------------
+    # Action Confirmations (Dialog Windows)
+    # ------------------------------------------------------------------------
+    confirm:
+      run_now: "Are you sure you want to run task processing manually? This may take some time."
+      test: "Are you sure you want to test the settings?"
     
-    custom_fields:
-      next_execution_date: "Next Execution Date"
-      advance_creation_days: "Create in Advance"
-      target_project: "Target Project"
-      target_tracker: "Tracker"
-      assignment: "Assignment"
-      watchers: "Watchers"
-      duration: "Duration"
-      working_days_only: "Working Days Only"
-      order_number: "Order Number"
-      interval_unit: "Interval Unit"
-      interval_value: "Interval"
-      day_number: "Day Number"
-      weekdays: "Weekdays"
-      month: "Month"
+    # ------------------------------------------------------------------------
+    # Email Notifications
+    # ------------------------------------------------------------------------
+    email:
+      notification_subject: "[ECSPK] Task Automation Errors and Warnings - %{details} (%{date})"
     
-    interval_units:
-      year: "year"
-      month: "month"
-      week: "week"
-      day: "day"
+    # ------------------------------------------------------------------------
+    # Flash Messages (Temporary Interface Notifications)
+    # ------------------------------------------------------------------------
+    flash:
+      run_error: "Critical error during launch: %{error}"
+      run_success: "Processing completed successfully. Created %{issues} tasks and %{subtasks} subtasks"
+      run_with_errors: "Processing completed with errors. Created %{issues} tasks, errors: %{errors}"
+      settings_save_error: "Error saving settings: %{error}"
+      settings_saved: "Settings saved successfully"
+      test_results_cleared: "Test results cleared"
     
-    levels:
-      info: "INFO"
-      warning: "WARNING"
-      error: "ERROR"
-      debug: "DEBUG"
+    # ------------------------------------------------------------------------
+    # Log Messages
+    # ------------------------------------------------------------------------
+    log:
+      # Custom Fields
+      field_not_available: "Field '%{field_name}' is not available for tracker '%{tracker_name}'"
+      field_not_found: "Custom field '%{field_name}' not found in system"
+      required_field_missing: "Required field '%{field_name}' is not filled in created task"
+      
+      # Date and Calculations
+      date_calculation_error: "Error calculating next execution date: %{error}"
+      date_schedule_mismatch: "Date does not match schedule. Next suitable date: %{new_date}"
+      invalid_weekday_in_month: "Invalid weekday for month when calculating date"
+      month_without_day: "Month specified without day number when calculating date"
+      multiple_days_invalid_interval: "Cannot specify multiple repeat days with interval greater than 1 week"
+      next_date_update_failed: "Failed to update next execution date: %{error}"
+      
+      # Email Distribution
+      email_not_configured: "mail_from parameter not configured in Redmine settings"
+      email_send_failed: "Email sending error: %{error}"
+      email_send_failed_to_admin: "Error sending email to administrator %{admin}: %{error}"
+      email_sent_to_admin: "Error report email sent to administrator %{admin} (%{email})"
+      email_summary: "Notification sending completed. Success: %{success}, Errors: %{errors}"
+      
+      # Change Log
+      empty: "Log is empty"
+      read_error: "Error reading log: %{error}"
+      
+      # Assignment (Group/User)
+      assignee_field_empty: "Field '%{field_name}' is not filled in template task"
+      assignee_field_not_configured: "Custom field '%{field_name}' is not configured in plugin"
+      assignee_not_found: "User or group '%{search_string}' not found (checked via field '%{field_name}')"
+      group_not_in_project: "Group '%{group_name}' is not a member of project '%{project_name}' and cannot be assigned to task"
+      issue_assignee_invalid: "Assignee '%{assignee_name}' cannot be assigned to task in project '%{project_name}'"
+      issue_assignee_not_in_project: "User or group '%{assignee_name}' is not a member of project '%{project_name}'. Task cannot be assigned to this user."
+      issue_validation_failed: "Task validation error: %{field} — %{reason}"
+      
+      # Watchers
+      watcher_not_found: "Watcher '%{search_string}' not found"
+      
+      # General Process Messages
+      issue_created: "Created task #%{issue_id}: %{subject} %{subtasks}"
+      no_templates_found: "No task templates found for processing"
+      notifications_disabled: "Notification sending is disabled in Redmine settings"
+      notifications_sent: "Notifications about task #%{issue_id} creation sent to watchers"
+      notification_error: "Error sending notifications: %{error}"
+      processing_started: "Starting task template processing"
+      processing_template: "Processing template #%{issue_id}"
+      settings_invalid: "Plugin settings are invalid"
+      summary_no_tasks: "No tasks were created"
+      summary_success: "Processing completed. Created tasks: %{issues}, subtasks: %{subtasks}"
+      template_processing_error: "Template processing error: %{error}"
+      with_subtasks: "(subtasks: %{count})"
+      
+      # Optimistic Locking Errors (StaleObjectError)
+      stale_object_error: "Error saving task #%{issue_id}: version conflict after %{retries} attempts"
+      stale_object_warning: "Warning: version conflict when saving task #%{issue_id} after %{retries} attempts (operation skipped)"
+      
+      # Target Project
+      project_archived: "Project '%{project_name}' is archived"
+      project_field_empty: "Field '%{field_name}' is not filled in template task"
+      project_field_not_configured: "Custom field '%{field_name}' is not configured in plugin"
+      project_not_found: "Project '%{field_value}' not found in system (checked via field '%{field_name}')"
+      
+      # Task Creation
+      issue_creation_failed: "Failed to create task due to validation errors"
+      issue_save_error: "Error saving task: %{error}"
+      
+      # Standard Fields
+      standard_field_invalid_value: "Standard field '%{field_name}': invalid value '%{field_value}'"
+      standard_field_not_available: "Standard field '%{field_name}' is not available for tracker '%{tracker_name}'"
+      standard_field_not_found: "Standard field '%{field_name}': value '%{field_value}' not found in project"
+      
+      # Subtasks
+      subtask_chain_exceeds_parent: "Subtask chain exceeds parent task deadline by %{days} days (parent deadline: %{parent_due}, chain end: %{subtask_chain_end})"
+      subtask_due_date_not_set: "Subtask #%{subtask_id}: due date not set"
+      subtask_processing_failed: "Subtask processing error - task #%{target_issue_id} deleted"
+      subtask_save_error: "Error saving subtask: %{error}"
+      subtask_tracker_no_parent_field: "Subtask #%{subtask_id}: tracker '%{tracker_name}' does not have field '%{field_name}' (cannot be subtask)"
+      subtask_tracker_not_found: "Subtask tracker not found in system"
+      subtask_tracker_not_found_in_template: "Subtask #%{subtask_id}: tracker not found in target project"
+      subtask_tracker_not_subtask: "Subtask #%{subtask_id}: tracker '%{tracker_name}' cannot be subtask (field 'Parent Issue' disabled in tracker settings)"
+      tracker_no_subtasks: "Selected tracker does not support subtasks"
+      
+      # Target Tracker
+      tracker_field_empty: "Field '%{field_name}' is not filled in template task"
+      tracker_field_not_configured: "Custom field '%{field_name}' is not configured in plugin"
+      tracker_not_found: "Tracker '%{tracker_name}' not found in system (checked via field '%{field_name}')"
+      tracker_not_in_project: "Tracker '%{tracker_name}' is not available in project '%{project_name}'"
     
-    datetime:
-      formats:
-        log: "%Y-%m-%d %H:%M:%S"
-        date_only: "%Y-%m-%d"
-        time_only: "%H:%M:%S"
+    # ------------------------------------------------------------------------
+    # Task History Journal Entries
+    # ------------------------------------------------------------------------
+    journal:
+      task_created: "* [Task automation] Created task #%{issue_id}"
+    
+    # ------------------------------------------------------------------------
+    # Rake Task Messages (Console Output and Logging)
+    # ------------------------------------------------------------------------
+    rake:
+      # --- Core process messages ---
+      process_start: "=== Starting task template processing === "
+      process_complete: "=== Processing completed === "
+      start_time: "Start time: %{time} "
+      end_time: "End time: %{time} "
+      duration: "Duration: %{seconds} sec. "
+      results: "Execution results "
+      status: "Status "
+      issues_created: "Created main tasks "
+      subtasks_created: "Created subtasks "
+      errors_count: "Number of errors "
+      error_details: "Error details: "
+      error_message: "Error message "
+      critical_error: "=== CRITICAL ERROR === "
+      critical_error_message: "Critical error: %{error} "
+      backtrace: "Backtrace: "
+      plugin_not_found: "Plugin redmine_task_automation not found! "
+      
+      # --- Lock file operations ---
+      lock_file_created: "Lock file created "
+      lock_file_removed: "Lock file removed "
+      lock_file_exists: "Another process is already running (PID: %{pid}) "
+      stale_lock_removed: "Stale lock file removed "
+      
+      # --- Testing ---
+      test_start: "=== Testing plugin settings === "
+      test_complete: "=== Testing completed === "
+      test_error: "=== TESTING ERROR === "
+      test_error_message: "Testing error: %{error} "
+      testing_settings: "Checking settings: "
+      testing_custom_fields: "Checking custom fields: "
+      project_found: "Project found: %{name} "
+      project_not_found: "Project not found "
+      project_not_selected: "Project not selected "
+      author_found: "Author found: %{name} "
+      author_not_found: "Author not found "
+      author_not_selected: "Author not selected "
+      tracker_found: "Tracker found: %{name} "
+      tracker_not_found: "Tracker not found "
+      tracker_not_selected: "Tracker not selected "
+      custom_fields_found: "All custom fields found "
+      custom_field_missing: "Field not found: %{field} "
+      
+      # --- Auxiliary tasks ---
+      log_cleared: "Log file cleared "
+      log_not_found: "Log file not found "
+      plugin_status: "=== Plugin Status === "
+
+    # ------------------------------------------------------------------------
+    # Settings Page
+    # ------------------------------------------------------------------------
+    settings:
+      section_actions: "Actions"
+      section_last_run: "Last run (log)"
+      section_main: "Main settings"
+      section_test_results: "Test results"
+      select_project: "-- Select project --"
+      select_tracker: "-- Select tracker --"
+      select_user: "-- Select user --"
+      
+      # Main settings fields
+      author_hint: "ID of user who will be specified as author"
+      author_id: "Author of created tasks"
+      run_now_hint: "Will immediately process all task templates"
+      source_project_hint: "ID of project where task templates are stored"
+      source_project_id: "Project with task templates"
+      subtask_tracker_hint: "ID of tracker that will be used for created subtasks"
+      subtask_tracker_id: "Subtask tracker"
+      tracker_hint: "ID of tracker for created main tasks"
+      tracker_id: "Main task tracker"
+    
+    settings_title: "Task Automation Settings"
+    
+    # ------------------------------------------------------------------------
+    # Operation Statuses
+    # ------------------------------------------------------------------------
+    status:
+      error: "Error"
+      info: "Info"
+      success: "Success"
+      warning: "Warning"
+    
+    # ------------------------------------------------------------------------
+    # Settings Testing Messages
+    # ------------------------------------------------------------------------
+    test:
+      # General messages
+      author_found: "Author found: %{name}"
+      author_not_found: "Author not found"
+      author_not_selected: "Author not selected"
+      custom_fields_found: "All required custom fields found"
+      custom_fields_missing: "Missing fields: %{fields}"
+      field_not_found_short: "not found"
+      general_error: "Testing error: %{error}"
+      project_found: "Project found: %{name}"
+      project_not_found: "Project not found"
+      project_not_selected: "Project not selected"
+      tracker_found: "Tracker found: %{name}"
+      tracker_not_found: "Tracker not found"
+      tracker_not_selected: "Tracker not selected"
+      
+      # For main tasks
+      main_fields_available: "All required fields available for main task tracker"
+      main_fields_not_available: "Fields not available for tracker '%{tracker}': %{fields}"
+      
+      # Rights and availability checks
+      author_has_permissions: "User has rights to read and edit tasks"
+      custom_field_type_invalid: "Field '%{field}': expected type '%{expected}', actual '%{actual}'"
+      custom_field_types_correct: "All custom field types are correct"
+      fields_available_for_tracker: "All required fields available for selected tracker"
+      fields_not_available_for_tracker: "Fields not available for tracker: %{fields}"
+      tracker_in_project: "Tracker is available in source project"
+      tracker_not_in_project: "Tracker is NOT available in source project"
+      
+      # For subtasks
+      subtask_field_type_invalid: "Invalid field type '%{field}': expected %{expected}, actual %{actual}"
+      subtask_field_types_correct: "Field types for subtasks are correct"
+      subtask_fields_available: "All required fields available for subtask tracker"
+      subtask_fields_not_available: "Fields not available for tracker '%{tracker}': %{fields}"
+      subtask_tracker_found: "Subtask tracker found: %{name}"
+      subtask_tracker_not_found: "Subtask tracker not found"
+      subtask_tracker_not_selected: "Subtask tracker not selected"
+      
+      # Messages for validate_subtask_tracker_in_project
+      parent_field_not_available: "Field 'Parent Issue' not available for tracker '%{tracker_name}'"
+      parent_field_not_found: "Field 'Parent Issue' not found in system"
+      project_not_found: "Project not found"
+      tracker_cannot_be_subtask: "Tracker '%{tracker_name}' cannot be subtask (subtask flag not set)"
+      tracker_not_available_in_project: "Tracker '%{tracker_name}' not available in project"
+      tracker_not_found: "Tracker not found"
+      
+      # Results summary
+      message: "Message"
+      status: "Status"
+      summary_error: "Errors: %{count}"
+      summary_success: "Success: %{count}"
+      summary_total: "Total checks: %{count}"
+      summary_warning: "Warnings: %{count}"
+    
+    # ------------------------------------------------------------------------
+    # Settings Validation Messages
+    # ------------------------------------------------------------------------
+    validation:
+      author_not_found: "Specified author not found"
+      author_required: "Author of created tasks is required"
+      date_field_not_found: "Custom field 'Next execution date' not found"
+      date_not_matching_schedule: "Next execution date does not match schedule. Date updated to %{new_date}"
+      day_interval_extra_fields_warning: "Interval 'day': additional fields are ignored"
+      month_both_fields_required: "For interval 'month' fields 'Number' and 'Repeat days' must be both filled or both empty"
+      month_day_number_invalid: "Field 'Number' must contain value from 1 to 5"
+      month_multiple_repeat_days: "For interval 'month' field 'Repeat days' must contain no more than one value"
+      source_project_not_found: "Specified project with templates not found"
+      source_project_required: "Project with task templates is required"
+      subtask_tracker_not_found: "Specified subtask tracker not found"
+      subtask_tracker_required: "Subtask tracker is required"
+      tracker_not_found: "Specified main task tracker not found"
+      tracker_required: "Main task tracker is required"
+      week_multiple_days_interval_warning: "Multiple repeat days: interval is ignored"
+      year_month_required: "For interval 'year' with fields 'Number' and 'Repeat days' field 'Month' is required"

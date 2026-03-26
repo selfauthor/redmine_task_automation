@@ -2,292 +2,307 @@
 # Файл: config/locales/ru.yml
 # Назначение: Локализация плагина автоматизации задач Redmine (русский язык)
 # ============================================================================
-
 ru:
   # --------------------------------------------------------------------------
   # Метаданные плагина
   # --------------------------------------------------------------------------
-  plugin_redmine_task_automation: "Автоматизация задач Redmine"
   label_task_automation: "Автоматизация задач"
-
+  plugin_redmine_task_automation: "Автоматизация задач Redmine"
+  
   task_automation:
-    # ------------------------------------------------------------------------
-    # Страница настроек
-    # ------------------------------------------------------------------------
-    settings_title: "Настройки автоматизации задач"
-    
-    settings:
-      section_main: "Основные настройки"
-      section_actions: "Действия"
-      section_test_results: "Результаты тестирования"
-      section_last_run: "Последний запуск (журнал)"
-      
-      select_project: "-- Выберите проект --"
-      select_user: "-- Выберите пользователя --"
-      select_tracker: "-- Выберите трекер --"
-      run_now_hint: "Запустит обработку всех задач-шаблонов немедленно"
-      
-      # Основные поля настроек
-      source_project_id: "Проект с шаблонами задач"
-      source_project_hint: "ID проекта, в котором хранятся задачи-шаблоны"
-      author_id: "Автор создаваемых задач"
-      author_hint: "ID пользователя, который будет указан как автор"
-      tracker_id: "Трекер основных задач"
-      tracker_hint: "ID трекера для создаваемых основных задач"
-      subtask_tracker_id: "Трекер подзадач"
-      subtask_tracker_hint: "ID трекера, который будет использоваться для создаваемых подзадач"
-
     # ------------------------------------------------------------------------
     # Кнопки интерфейса
     # ------------------------------------------------------------------------
     buttons:
+      clear_test_results: "Очистить результаты тестирования"
+      run_now: "Запустить сейчас"
+      run_now_hint: "Запускает немедленную обработку всех задач-шаблонов. Создаёт новые задачи на основе шаблонов, у которых подошла дата выполнения"
       save: "Сохранить"
       save_hint: "Сохраняет текущие настройки плагина в базу данных"
       test: "Тестировать"
       test_hint: "Проверяет корректность настроек: наличие проекта, пользователя, трекера и всех необходимых кастомных полей"
-      run_now: "Запустить сейчас"
-      run_now_hint: "Запускает немедленную обработку всех задач-шаблонов. Создаёт новые задачи на основе шаблонов, у которых подошла дата выполнения"
-      clear_test_results: "Очистить результаты тестирования"
-
-    # ------------------------------------------------------------------------
-    # Flash-сообщения (временные уведомления в интерфейсе)
-    # ------------------------------------------------------------------------
-    flash:
-      settings_saved: "Настройки успешно сохранены"
-      settings_save_error: "Ошибка сохранения настроек: %{error}"
-      run_success: "Обработка завершена успешно. Создано %{issues} задач и %{subtasks} подзадач"
-      run_with_errors: "Обработка завершена с ошибками. Создано %{issues} задач, ошибок: %{errors}"
-      run_error: "Критическая ошибка при запуске: %{error}"
-      test_results_cleared: "Результаты тестирования очищены"
-
-    # ------------------------------------------------------------------------
-    # Сообщения валидации настроек
-    # ------------------------------------------------------------------------
-    validation:
-      source_project_required: "Проект с шаблонами задач обязателен для заполнения"
-      source_project_not_found: "Указанный проект с шаблонами не найден"
-      author_required: "Автор создаваемых задач обязателен для заполнения"
-      author_not_found: "Указанный автор не найден"
-      tracker_required: "Трекер основных задач обязателен для заполнения"
-      tracker_not_found: "Указанный трекер основных задач не найден"
-      subtask_tracker_required: "Трекер подзадач обязателен для заполнения"
-      subtask_tracker_not_found: "Указанный трекер подзадач не найден"
-      date_field_not_found: "Кастомное поле 'Дата следующего выполнения' не найдено"
-      
-      # Валидация полей периодичности
-      day_interval_extra_fields_warning: "Интервал 'день': дополнительные поля игнорируются"
-      week_multiple_days_interval_warning: "Несколько дней повторения: интервал игнорируется"
-      month_both_fields_required: "Для интервала 'месяц' поля 'Номер' и 'Дни повторения' должны быть заполнены оба или оба пустые"
-      month_day_number_invalid: "Поле 'Номер' должно содержать значение от 1 до 5"
-      month_multiple_repeat_days: "Для интервала 'месяц' поле 'Дни повторения' должно содержать не более одного значения"
-      year_month_required: "Для интервала 'год' с использованием полей 'Номер' и 'Дни повторения' поле 'Месяц' обязательно"
-      date_not_matching_schedule: "Дата следующего выполнения не соответствует расписанию. Дата обновлена на %{new_date}"
-
+    
     # ------------------------------------------------------------------------
     # Подтверждения действий (диалоговые окна)
     # ------------------------------------------------------------------------
     confirm:
-      test: "Вы уверены, что хотите протестировать настройки?"
       run_now: "Вы уверены, что хотите запустить обработку задач вручную? Это может занять некоторое время."
-
-    # ------------------------------------------------------------------------
-    # Сообщения тестирования настроек
-    # ------------------------------------------------------------------------
-    test:
-      # Общие сообщения
-      project_found: "Проект найден: %{name}"
-      project_not_found: "Проект не найден"
-      project_not_selected: "Проект не выбран"
-      author_found: "Автор найден: %{name}"
-      author_not_found: "Автор не найден"
-      author_not_selected: "Автор не выбран"
-      tracker_found: "Трекер найден: %{name}"
-      tracker_not_found: "Трекер не найден"
-      tracker_not_selected: "Трекер не выбран"
-      custom_fields_found: "Все необходимые кастомные поля найдены"
-      custom_fields_missing: "Отсутствуют поля: %{fields}"
-      field_not_found_short: "не найдено"
-      general_error: "Ошибка тестирования: %{error}"
-      
-      # Проверки прав и доступности
-      tracker_in_project: "Трекер доступен в проекте-источнике"
-      tracker_not_in_project: "Трекер НЕ доступен в проекте-источнике"
-      author_has_permissions: "Пользователь имеет права на чтение и редактирование задач"
-      fields_available_for_tracker: "Все необходимые поля доступны для выбранного трекера"
-      fields_not_available_for_tracker: "Поля недоступны для трекера: %{fields}"
-      custom_field_types_correct: "Типы всех кастомных полей корректны"
-      custom_field_type_invalid: "Поле '%{field}': ожидается тип '%{expected}', фактически '%{actual}'"
-      
-      # Для основных задач
-      main_fields_available: "Все необходимые поля доступны для трекера основных задач"
-      main_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
-      
-      # Для подзадач
-      subtask_tracker_found: "Трекер подзадач найден: %{name}"
-      subtask_tracker_not_found: "Трекер подзадач не найден"
-      subtask_tracker_not_selected: "Трекер подзадач не выбран"
-      subtask_fields_available: "Все необходимые поля доступны для трекера подзадач"
-      subtask_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
-      subtask_field_types_correct: "Типы полей для подзадач корректны"
-      subtask_field_type_invalid: "Некорректный тип поля '%{field}': ожидается %{expected}, фактически %{actual}"
-      
-      # Сводка результатов
-      summary_success: "Успешно: %{count}"
-      summary_error: "Ошибки: %{count}"
-      summary_warning: "Предупреждения: %{count}"
-      summary_total: "Всего проверок: %{count}"
-      status: "Статус"
-      message: "Сообщение"
-
-      # Сообщения для validate_subtask_tracker_in_project?
-      tracker_not_found: "Трекер не найден"
-      tracker_cannot_be_subtask: "Трекер '%{tracker_name}' не может быть подзадачей (не установлен флаг subtask)"
-      tracker_not_available_in_project: "Трекер '%{tracker_name}' недоступен в проекте"
-      project_not_found: "Проект не найден"
-      parent_field_not_available: "Поле 'Родительская задача' недоступно для трекера '%{tracker_name}'"
-      parent_field_not_found: "Поле 'Родительская задача' не найдено в системе"
-
-    # ------------------------------------------------------------------------
-    # Сообщения Rake-задач (консольный вывод)
-    # ------------------------------------------------------------------------
-    rake:
-      process_start: "=== Запуск обработки задач-шаблонов ==="
-      start_time: "Время начала: %{time}"
-      results: "Результаты выполнения"
-      status: "Статус"
-      issues_created: "Создано основных задач"
-      subtasks_created: "Создано подзадач"
-      errors_count: "Количество ошибок"
-      error_details: "Детали ошибок:"
-      end_time: "Время окончания: %{time}"
-      duration: "Длительность: %{seconds} сек."
-      critical_error: "=== КРИТИЧЕСКАЯ ОШИБКА ==="
-      error_message: "Сообщение об ошибке"
-      backtrace: "Трассировка:"
-      test_start: "=== Тестирование настроек плагина ==="
-      testing_settings: "Проверка настроек:"
-      testing_custom_fields: "Проверка кастомных полей:"
-      test_complete: "=== Тестирование завершено ==="
-      test_error: "=== ОШИБКА ТЕСТИРОВАНИЯ ==="
-      log_cleared: "Журнал логов очищен"
-      log_not_found: "Файл журнала не найден"
-      log_read_error: "Ошибка чтения журнала: %{error}"
-      plugin_status: "=== Статус плагина ==="
-
-    # ------------------------------------------------------------------------
-    # Статусы операций
-    # ------------------------------------------------------------------------
-    status:
-      success: "Успешно"
-      error: "Ошибка"
-      warning: "Предупреждение"
-      info: "Информация"
-
-    # ------------------------------------------------------------------------
-    # Сообщения журнала (логирования)
-    # ------------------------------------------------------------------------
-    log:
-      # Проект назначения
-      project_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
-      project_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
-      project_not_found: "Проект '%{field_value}' не найден в системе (проверено по полю '%{field_name}')"
-      project_archived: "Проект '%{project_name}' архивирован"
-      
-      # Трекер назначения
-      tracker_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
-      tracker_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
-      tracker_not_found: "Трекер '%{tracker_name}' не найден в системе (проверено по полю '%{field_name}')"
-      tracker_not_in_project: "Трекер '%{tracker_name}' недоступен в проекте '%{project_name}'"
-  
-      # Группа/пользователь назначения
-      assignee_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
-      assignee_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
-      assignee_not_found: "Пользователь или группа '%{search_string}' не найдены (проверено по полю '%{field_name}')"
-
-      # ✅ НОВЫЕ: Сообщения об ошибках валидации при создании задачи
-      issue_assignee_not_in_project: "Пользователь или группа '%{assignee_name}' не является участником проекта '%{project_name}'. Задача не может быть назначена этому пользователю."
-      issue_assignee_invalid: "Назначенный '%{assignee_name}' не может быть назначен на задачу в проекте '%{project_name}'"
-      issue_validation_failed: "Ошибка валидации задачи: %{field} — %{reason}"
-      group_not_in_project: "Группа '%{group_name}' не является участником проекта '%{project_name}' и не может быть назначена на задачу"
-  
-      # Наблюдатели
-      watcher_not_found: "Наблюдатель '%{search_string}' не найден"
-      
-      # Кастомные поля
-      field_not_found: "Кастомное поле '%{field_name}' не найдено в системе"
-      field_not_available: "Поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
-      required_field_missing: "Обязательное поле '%{field_name}' не заполнено в создаваемой задаче"
-      
-      # Создание задачи
-      issue_creation_failed: "Не удалось создать задачу из-за ошибок валидации"
-      issue_save_error: "Ошибка сохранения задачи: %{error}"
-      
-      # Подзадачи
-      subtask_tracker_not_found: "Трекер подзадачи не найден в системе"
-      subtask_tracker_not_found_in_template: "Подзадача #%{subtask_id}: трекер не найден в проекте назначения"
-      subtask_tracker_no_parent_field: "Подзадача #%{subtask_id}: трекер '%{tracker_name}' не имеет поля '%{field_name}' (не может быть подзадачей)"
-      subtask_save_error: "Ошибка сохранения подзадачи: %{error}"
-      subtask_processing_failed: "Ошибка обработки подзадач - задача #%{target_issue_id} удалена"
-      subtask_chain_exceeds_parent: "Цепочка подзадач выходит за пределы срока родительской задачи на %{days} дн. (срок родителя: %{parent_due}, окончание цепочки: %{subtask_chain_end})"
-      subtask_due_date_not_set: "Подзадача #%{subtask_id}: не установлена дата завершения"
-      tracker_no_subtasks: "Выбранный трекер не поддерживает подзадачи"
-      
-      # Даты и расчёты
-      date_calculation_error: "Ошибка расчета даты следующего выполнения: %{error}"
-      invalid_weekday_in_month: "Неверный день недели для месяца при расчете даты"
-      month_without_day: "Месяц указан без числа при расчете даты"
-      multiple_days_invalid_interval: "Нельзя указать несколько дней повторения при интервале больше 1 недели"
-      next_date_update_failed: "Не удалось обновить дату следующего выполнения: %{error}"
-      
-      # Ошибки оптимистической блокировки (StaleObjectError)
-      stale_object_error: "Ошибка сохранения задачи #%{issue_id}: конфликт версий после %{retries} попыток"
-      stale_object_warning: "Предупреждение: конфликт версий при сохранении задачи #%{issue_id} после %{retries} попыток (операция пропущена)"
-      
-      # Общие сообщения процесса
-      processing_started: "Запуск обработки задач-шаблонов"
-      processing_template: "Обработка шаблона #%{issue_id}"
-      template_processing_error: "Ошибка обработки шаблона: %{error}"
-      settings_invalid: "Настройки плагина невалидны"
-      no_templates_found: "Задачи-шаблоны для обработки не найдены"
-      summary_success: "Обработка завершена. Создано задач: %{issues}, подзадач: %{subtasks}"
-      summary_no_tasks: "Задачи не создавались"
-      issue_created: "Создана задача #%{issue_id}: %{subject} %{subtasks}"
-      with_subtasks: "(подзадач: %{count})"
-      
-      # Уведомления
-      notifications_sent: "Уведомления о создании задачи #%{issue_id} отправлены наблюдателям"
-      notifications_disabled: "Отправка уведомлений отключена в настройках Redmine"
-      notification_error: "Ошибка отправки уведомлений: %{error}"
-      
-      # Email-рассылка
-      email_not_configured: "Не настроен параметр mail_from в настройках Redmine"
-      email_send_failed: "Ошибка отправки email: %{error}"
-      email_sent_to_admin: "Email с отчётом об ошибках отправлен администратору %{admin} (%{email})"
-      email_send_failed_to_admin: "Ошибка отправки email администратору %{admin}: %{error}"
-      email_summary: "Отправка уведомлений завершена. Успешно: %{success}, Ошибок: %{errors}"
-      
-      # Журнал изменений
-      empty: "Журнал пуст"
-      read_error: "Ошибка чтения журнала: %{error}"
-      date_schedule_mismatch: "Дата не соответствует расписанию. Следующая подходящая дата: %{new_date}"
-
-      subtask_tracker_not_subtask: "Подзадача #%{subtask_id}: трекер '%{tracker_name}' не может быть подзадачей (поле 'Родительская задача' отключено в настройках трекера)"
-      subtask_tracker_not_found_in_template: "Подзадача #%{subtask_id}: трекер не найден в проекте назначения"
-      subtask_tracker_no_parent_field: "Подзадача #%{subtask_id}: трекер '%{tracker_name}' не имеет поля '%{field_name}' (не может быть подзадачей)"
-
-      # ✅ НОВЫЕ: Сообщения для стандартных полей
-      standard_field_not_found: "Стандартное поле '%{field_name}': значение '%{field_value}' не найдено в проекте"
-      standard_field_not_available: "Стандартное поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
-      standard_field_invalid_value: "Стандартное поле '%{field_name}': некорректное значение '%{field_value}'"
-
+      test: "Вы уверены, что хотите протестировать настройки?"
+    
     # ------------------------------------------------------------------------
     # Email-уведомления
     # ------------------------------------------------------------------------
     email:
       notification_subject: "[ЕЦСПК] Ошибки и предупреждения автоматизации задач - %{details} (%{date})"
-
+    
+    # ------------------------------------------------------------------------
+    # Flash-сообщения (временные уведомления в интерфейсе)
+    # ------------------------------------------------------------------------
+    flash:
+      run_error: "Критическая ошибка при запуске: %{error}"
+      run_success: "Обработка завершена успешно. Создано %{issues} задач и %{subtasks} подзадач"
+      run_with_errors: "Обработка завершена с ошибками. Создано %{issues} задач, ошибок: %{errors}"
+      settings_save_error: "Ошибка сохранения настроек: %{error}"
+      settings_saved: "Настройки успешно сохранены"
+      test_results_cleared: "Результаты тестирования очищены"
+    
+    # ------------------------------------------------------------------------
+    # Сообщения журнала (логирования)
+    # ------------------------------------------------------------------------
+    log:
+      # Кастомные поля
+      field_not_available: "Поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
+      field_not_found: "Кастомное поле '%{field_name}' не найдено в системе"
+      required_field_missing: "Обязательное поле '%{field_name}' не заполнено в создаваемой задаче"
+      
+      # Дата и расчёты
+      date_calculation_error: "Ошибка расчета даты следующего выполнения: %{error}"
+      date_schedule_mismatch: "Дата не соответствует расписанию. Следующая подходящая дата: %{new_date}"
+      invalid_weekday_in_month: "Неверный день недели для месяца при расчете даты"
+      month_without_day: "Месяц указан без числа при расчете даты"
+      multiple_days_invalid_interval: "Нельзя указать несколько дней повторения при интервале больше 1 недели"
+      next_date_update_failed: "Не удалось обновить дату следующего выполнения: %{error}"
+      
+      # Email-рассылка
+      email_not_configured: "Не настроен параметр mail_from в настройках Redmine"
+      email_send_failed: "Ошибка отправки email: %{error}"
+      email_send_failed_to_admin: "Ошибка отправки email администратору %{admin}: %{error}"
+      email_sent_to_admin: "Email с отчётом об ошибках отправлен администратору %{admin} (%{email})"
+      email_summary: "Отправка уведомлений завершена. Успешно: %{success}, Ошибок: %{errors}"
+      
+      # Журнал изменений
+      empty: "Журнал пуст"
+      read_error: "Ошибка чтения журнала: %{error}"
+      
+      # Назначение (группа/пользователь)
+      assignee_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      assignee_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      assignee_not_found: "Пользователь или группа '%{search_string}' не найдены (проверено по полю '%{field_name}')"
+      group_not_in_project: "Группа '%{group_name}' не является участником проекта '%{project_name}' и не может быть назначена на задачу"
+      issue_assignee_invalid: "Назначенный '%{assignee_name}' не может быть назначен на задачу в проекте '%{project_name}'"
+      issue_assignee_not_in_project: "Пользователь или группа '%{assignee_name}' не является участником проекта '%{project_name}'. Задача не может быть назначена этому пользователю."
+      issue_validation_failed: "Ошибка валидации задачи: %{field} — %{reason}"
+      
+      # Наблюдатели
+      watcher_not_found: "Наблюдатель '%{search_string}' не найден"
+      
+      # Общие сообщения процесса
+      issue_created: "Создана задача #%{issue_id}: %{subject} %{subtasks}"
+      no_templates_found: "Задачи-шаблоны для обработки не найдены"
+      notifications_disabled: "Отправка уведомлений отключена в настройках Redmine"
+      notifications_sent: "Уведомления о создании задачи #%{issue_id} отправлены наблюдателям"
+      notification_error: "Ошибка отправки уведомлений: %{error}"
+      processing_started: "Запуск обработки задач-шаблонов"
+      processing_template: "Обработка шаблона #%{issue_id}"
+      settings_invalid: "Настройки плагина невалидны"
+      summary_no_tasks: "Задачи не создавались"
+      summary_success: "Обработка завершена. Создано задач: %{issues}, подзадач: %{subtasks}"
+      template_processing_error: "Ошибка обработки шаблона: %{error}"
+      with_subtasks: "(подзадач: %{count})"
+      
+      # Ошибки оптимистической блокировки (StaleObjectError)
+      stale_object_error: "Ошибка сохранения задачи #%{issue_id}: конфликт версий после %{retries} попыток"
+      stale_object_warning: "Предупреждение: конфликт версий при сохранении задачи #%{issue_id} после %{retries} попыток (операция пропущена)"
+      
+      # Проект назначения
+      project_archived: "Проект '%{project_name}' архивирован"
+      project_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      project_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      project_not_found: "Проект '%{field_value}' не найден в системе (проверено по полю '%{field_name}')"
+      
+      # Создание задачи
+      issue_creation_failed: "Не удалось создать задачу из-за ошибок валидации"
+      issue_save_error: "Ошибка сохранения задачи: %{error}"
+      
+      # Стандартные поля
+      standard_field_invalid_value: "Стандартное поле '%{field_name}': некорректное значение '%{field_value}'"
+      standard_field_not_available: "Стандартное поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
+      standard_field_not_found: "Стандартное поле '%{field_name}': значение '%{field_value}' не найдено в проекте"
+      
+      # Подзадачи
+      subtask_chain_exceeds_parent: "Цепочка подзадач выходит за пределы срока родительской задачи на %{days} дн. (срок родителя: %{parent_due}, окончание цепочки: %{subtask_chain_end})"
+      subtask_due_date_not_set: "Подзадача #%{subtask_id}: не установлена дата завершения"
+      subtask_processing_failed: "Ошибка обработки подзадач - задача #%{target_issue_id} удалена"
+      subtask_save_error: "Ошибка сохранения подзадачи: %{error}"
+      subtask_tracker_no_parent_field: "Подзадача #%{subtask_id}: трекер '%{tracker_name}' не имеет поля '%{field_name}' (не может быть подзадачей)"
+      subtask_tracker_not_found: "Трекер подзадачи не найден в системе"
+      subtask_tracker_not_found_in_template: "Подзадача #%{subtask_id}: трекер не найден в проекте назначения"
+      subtask_tracker_not_subtask: "Подзадача #%{subtask_id}: трекер '%{tracker_name}' не может быть подзадачей (поле 'Родительская задача' отключено в настройках трекера)"
+      tracker_no_subtasks: "Выбранный трекер не поддерживает подзадачи"
+      
+      # Трекер назначения
+      tracker_field_empty: "Поле '%{field_name}' не заполнено в задаче-шаблоне"
+      tracker_field_not_configured: "Кастомное поле '%{field_name}' не настроено в плагине"
+      tracker_not_found: "Трекер '%{tracker_name}' не найден в системе (проверено по полю '%{field_name}')"
+      tracker_not_in_project: "Трекер '%{tracker_name}' недоступен в проекте '%{project_name}'"
+    
     # ------------------------------------------------------------------------
     # Записи в журнале истории задач
     # ------------------------------------------------------------------------
     journal:
       task_created: "* [Task automation] Создана задача #%{issue_id}"
+    
+    # ------------------------------------------------------------------------
+    # Сообщения Rake-задач (консольный вывод и логирование)
+    # ------------------------------------------------------------------------
+    rake:
+      # --- Основные сообщения процесса ---
+      process_start: "=== Запуск обработки задач-шаблонов === "
+      process_complete: "=== Обработка завершена === "
+      start_time: "Время начала: %{time} "
+      end_time: "Время окончания: %{time} "
+      duration: "Длительность: %{seconds} сек. "
+      results: "Результаты выполнения "
+      status: "Статус "
+      issues_created: "Создано основных задач "
+      subtasks_created: "Создано подзадач "
+      errors_count: "Количество ошибок "
+      error_details: "Детали ошибок: "
+      error_message: "Сообщение об ошибке "
+      critical_error: "=== КРИТИЧЕСКАЯ ОШИБКА === "
+      critical_error_message: "Критическая ошибка: %{error} "
+      backtrace: "Трассировка: "
+      backtrace_log: "Backtrace: %{trace} "
+      plugin_not_found: "Плагин redmine_task_automation не найден! "
+      
+      # --- Lock file операции ---
+      lock_file_created: "Lock file создан "
+      lock_file_removed: "Lock file удалён "
+      lock_file_exists: "Другой процесс уже выполняется (PID: %{pid}) "
+      stale_lock_removed: "Stale lock file удалён "
+      
+      # --- Тестирование ---
+      test_start: "=== Тестирование настроек плагина === "
+      test_complete: "=== Тестирование завершено === "
+      test_error: "=== ОШИБКА ТЕСТИРОВАНИЯ === "
+      test_error_message: "Ошибка тестирования: %{error} "
+      testing_settings: "Проверка настроек: "
+      testing_custom_fields: "Проверка кастомных полей: "
+      project_found: "Проект найден: %{name} "
+      project_not_found: "Проект не найден "
+      project_not_selected: "Проект не выбран "
+      author_found: "Автор найден: %{name} "
+      author_not_found: "Автор не найден "
+      author_not_selected: "Автор не выбран "
+      tracker_found: "Трекер найден: %{name} "
+      tracker_not_found: "Трекер не найден "
+      tracker_not_selected: "Трекер не выбран "
+      custom_fields_found: "Все кастомные поля найдены "
+      custom_field_missing: "Поле не найдено: %{field} "
+      
+      # --- Вспомогательные задачи ---
+      log_cleared: "Журнал логов очищен "
+      log_not_found: "Файл журнала не найден "
+      plugin_status: "=== Статус плагина === "
+
+    # ------------------------------------------------------------------------
+    # Страница настроек
+    # ------------------------------------------------------------------------
+    settings:
+      section_actions: "Действия"
+      section_last_run: "Последний запуск (журнал)"
+      section_main: "Основные настройки"
+      section_test_results: "Результаты тестирования"
+      select_project: "-- Выберите проект --"
+      select_tracker: "-- Выберите трекер --"
+      select_user: "-- Выберите пользователя --"
+      
+      # Основные поля настроек
+      author_hint: "ID пользователя, который будет указан как автор"
+      author_id: "Автор создаваемых задач"
+      run_now_hint: "Запустит обработку всех задач-шаблонов немедленно"
+      source_project_hint: "ID проекта, в котором хранятся задачи-шаблоны"
+      source_project_id: "Проект с шаблонами задач"
+      subtask_tracker_hint: "ID трекера, который будет использоваться для создаваемых подзадач"
+      subtask_tracker_id: "Трекер подзадач"
+      tracker_hint: "ID трекера для создаваемых основных задач"
+      tracker_id: "Трекер основных задач"
+    
+    settings_title: "Настройки автоматизации задач"
+    
+    # ------------------------------------------------------------------------
+    # Статусы операций
+    # ------------------------------------------------------------------------
+    status:
+      error: "Ошибка"
+      info: "Информация"
+      success: "Успешно"
+      warning: "Предупреждение"
+    
+    # ------------------------------------------------------------------------
+    # Сообщения тестирования настроек
+    # ------------------------------------------------------------------------
+    test:
+      # Общие сообщения
+      author_found: "Автор найден: %{name}"
+      author_not_found: "Автор не найден"
+      author_not_selected: "Автор не выбран"
+      custom_fields_found: "Все необходимые кастомные поля найдены"
+      custom_fields_missing: "Отсутствуют поля: %{fields}"
+      field_not_found_short: "не найдено"
+      general_error: "Ошибка тестирования: %{error}"
+      project_found: "Проект найден: %{name}"
+      project_not_found: "Проект не найден"
+      project_not_selected: "Проект не выбран"
+      tracker_found: "Трекер найден: %{name}"
+      tracker_not_found: "Трекер не найден"
+      tracker_not_selected: "Трекер не выбран"
+      
+      # Для основных задач
+      main_fields_available: "Все необходимые поля доступны для трекера основных задач"
+      main_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
+      
+      # Проверки прав и доступности
+      author_has_permissions: "Пользователь имеет права на чтение и редактирование задач"
+      custom_field_type_invalid: "Поле '%{field}': ожидается тип '%{expected}', фактически '%{actual}'"
+      custom_field_types_correct: "Типы всех кастомных полей корректны"
+      fields_available_for_tracker: "Все необходимые поля доступны для выбранного трекера"
+      fields_not_available_for_tracker: "Поля недоступны для трекера: %{fields}"
+      tracker_in_project: "Трекер доступен в проекте-источнике"
+      tracker_not_in_project: "Трекер НЕ доступен в проекте-источнике"
+      
+      # Для подзадач
+      subtask_field_type_invalid: "Некорректный тип поля '%{field}': ожидается %{expected}, фактически %{actual}"
+      subtask_field_types_correct: "Типы полей для подзадач корректны"
+      subtask_fields_available: "Все необходимые поля доступны для трекера подзадач"
+      subtask_fields_not_available: "Поля недоступны для трекера '%{tracker}': %{fields}"
+      subtask_tracker_found: "Трекер подзадач найден: %{name}"
+      subtask_tracker_not_found: "Трекер подзадач не найден"
+      subtask_tracker_not_selected: "Трекер подзадач не выбран"
+      
+      # Сообщения для validate_subtask_tracker_in_project
+      parent_field_not_available: "Поле 'Родительская задача' недоступно для трекера '%{tracker_name}'"
+      parent_field_not_found: "Поле 'Родительская задача' не найдено в системе"
+      project_not_found: "Проект не найден"
+      tracker_cannot_be_subtask: "Трекер '%{tracker_name}' не может быть подзадачей (не установлен флаг subtask)"
+      tracker_not_available_in_project: "Трекер '%{tracker_name}' недоступен в проекте"
+      tracker_not_found: "Трекер не найден"
+      
+      # Сводка результатов
+      message: "Сообщение"
+      status: "Статус"
+      summary_error: "Ошибки: %{count}"
+      summary_success: "Успешно: %{count}"
+      summary_total: "Всего проверок: %{count}"
+      summary_warning: "Предупреждения: %{count}"
+    
+    # ------------------------------------------------------------------------
+    # Сообщения валидации настроек
+    # ------------------------------------------------------------------------
+    validation:
+      author_not_found: "Указанный автор не найден"
+      author_required: "Автор создаваемых задач обязателен для заполнения"
+      date_field_not_found: "Кастомное поле 'Дата следующего выполнения' не найдено"
+      date_not_matching_schedule: "Дата следующего выполнения не соответствует расписанию. Дата обновлена на %{new_date}"
+      day_interval_extra_fields_warning: "Интервал 'день': дополнительные поля игнорируются"
+      month_both_fields_required: "Для интервала 'месяц' поля 'Номер' и 'Дни повторения' должны быть заполнены оба или оба пустые"
+      month_day_number_invalid: "Поле 'Номер' должно содержать значение от 1 до 5"
+      month_multiple_repeat_days: "Для интервала 'месяц' поле 'Дни повторения' должно содержать не более одного значения"
+      source_project_not_found: "Указанный проект с шаблонами не найден"
+      source_project_required: "Проект с шаблонами задач обязателен для заполнения"
+      subtask_tracker_not_found: "Указанный трекер подзадач не найден"
+      subtask_tracker_required: "Трекер подзадач обязателен для заполнения"
+      tracker_not_found: "Указанный трекер основных задач не найден"
+      tracker_required: "Трекер основных задач обязателен для заполнения"
+      week_multiple_days_interval_warning: "Несколько дней повторения: интервал игнорируется"
+      year_month_required: "Для интервала 'год' с использованием полей 'Номер' и 'Дни повторения' поле 'Месяц' обязательно"

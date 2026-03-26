@@ -213,8 +213,6 @@ module TaskAutomation
 
         # ✅ ШАГ 4: Валидация трекеров подзадач (ИЗ service.rb)
         if template_issue.children.any?
-          Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач для шаблона ##{template_issue.id}"
-          
           subtask_validation = TaskAutomation::Service.validate_subtask_trackers(
             template_issue, target_project, @custom_field_ids)
           
@@ -223,11 +221,9 @@ module TaskAutomation
               add_error(error, template_issue.id)
             end
             
-            Rails.logger.error "[TaskAutomation] process_template_issue: Проверка трекеров подзадач не пройдена"
             return
           end
           
-          Rails.logger.info "[TaskAutomation] process_template_issue: Проверка трекеров подзадач пройдена успешно"
         end
     
         # ✅ ШАГ 5: Валидация дополнительных полей периодичности
@@ -276,18 +272,14 @@ module TaskAutomation
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
         
-        Rails.logger.info "[TaskAutomation] process_template_issue: Задача создана - target_issue_id=#{target_issue.id}, lock_version=#{target_issue.lock_version}"
-        
         # Шаг 3.7: Добавление наблюдателей (вычисляем один раз для родителя и всех подзадач)
         target_issue.reload
         watcher_ids = calculate_watcher_ids(template_issue, assignee)
         add_watchers_to_issue(target_issue, watcher_ids)
 
         target_issue.reload
-        Rails.logger.info "[TaskAutomation] process_template_issue: Наблюдатели добавлены"
         
         target_issue.reload
-        Rails.logger.info "[TaskAutomation] process_template_issue: Задача перезажружена - lock_version=#{target_issue.lock_version}"
         
         # Шаг 3.8: Обработка подзадач
         has_subtasks = template_issue.children.any?
@@ -296,7 +288,6 @@ module TaskAutomation
           success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee, watcher_ids)
   
           unless success
-            Rails.logger.warn "[TaskAutomation] process_template_issue: Удаление задачи ##{target_issue.id} из-за ошибки создания подзадач"
             target_issue.destroy
             add_error(I18n.t('task_automation.log.subtask_processing_failed', 
                              target_issue_id: target_issue.id), template_issue.id)
@@ -332,12 +323,7 @@ module TaskAutomation
           add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
         end
 
-        Rails.logger.info "[TaskAutomation] process_template_issue: УСПЕШНО завершено - target_issue_id=#{target_issue.id}"
-        
       rescue => e
-        Rails.logger.error "[TaskAutomation] process_template_issue: ОШИБКА - #{e.class}: #{e.message}"
-        Rails.logger.error "[TaskAutomation] Backtrace: #{e.backtrace.first(5).join("\n")}"
-        
         add_error(I18n.t('task_automation.log.template_processing_error', 
                        issue_id: template_issue.id, 
                        error: e.message), template_issue.id)
@@ -388,12 +374,10 @@ module TaskAutomation
         
         # Первое сохранение
         issue.save!
-        Rails.logger.info "[TaskAutomation] create_target_issue: Задача создана - issue_id=#{issue.id}, lock_version=#{issue.lock_version}"
         
         # Копирование вложений
         copy_attachments(template_issue, issue)
         
-        Rails.logger.info "[TaskAutomation] create_target_issue: Вложения скопированы - issue_id=#{issue.id}"
       end
       
       # Перезагружаем объект после транзакции
@@ -403,11 +387,9 @@ module TaskAutomation
     rescue ActiveRecord::RecordInvalid => e
       error_message = extract_validation_error_message(e, target_project, assignee, template_issue.id) 
       add_error(error_message, template_issue.id)
-      Rails.logger.error "[TaskAutomation] create_target_issue: Ошибка валидации - #{e.message}"
       nil
     rescue => e
       add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
-      Rails.logger.error "[TaskAutomation] create_target_issue: Ошибка - #{e.class}: #{e.message}"
       nil
     end
 
@@ -516,15 +498,10 @@ module TaskAutomation
     def copy_attachments(source_issue, target_issue)
       return unless source_issue.attachments.any?
       
-      Rails.logger.info "[TaskAutomation] copy_attachments: Начало - source_id=#{source_issue.id}, target_id=#{target_issue.id}, count=#{source_issue.attachments.count}"
-      
       source_issue.attachments.each_with_index do |attachment, index|
         begin
-          Rails.logger.info "[TaskAutomation] copy_attachments: Копирование вложения ##{index + 1} - #{attachment.filename}"
-          
           # Проверяем существование файла на диске
           unless File.exist?(attachment.diskfile)
-            Rails.logger.warn "[TaskAutomation] copy_attachments: Файл не найден - #{attachment.diskfile}"
             next
           end
           
@@ -555,8 +532,6 @@ module TaskAutomation
           # Сохраняем вложение
           new_attachment.save!
           
-          Rails.logger.info "[TaskAutomation] copy_attachments: Вложение скопировано - #{attachment.filename} (#{attachment.filesize} bytes)"
-          
           # Закрываем и удаляем временный файл
           temp_file.close
           temp_file.unlink
@@ -567,7 +542,6 @@ module TaskAutomation
         end
       end
       
-      Rails.logger.info "[TaskAutomation] copy_attachments: Завершено"
     end
 
     # ============================================================================
@@ -598,7 +572,6 @@ module TaskAutomation
             
             if watcher
               watcher_ids << watcher.id
-              Rails.logger.debug "[TaskAutomation] calculate_watcher_ids: добавлен наблюдатель #{watcher.class} - #{watcher.name}"
             else
               add_warning(I18n.t('task_automation.log.watcher_not_found', 
                                search_string: watcher_fragment), template_issue.id)
@@ -637,17 +610,14 @@ module TaskAutomation
         issue.watcher_user_ids = (existing_watcher_ids + watcher_ids).uniq
         
         issue.save!(notifications: false)
-        Rails.logger.debug "[TaskAutomation] add_watchers_to_issue: добавлено #{watcher_ids.count} наблюдателей к задаче ##{issue.id}"
         
       rescue ActiveRecord::StaleObjectError => e
         retry_count += 1
         
         if retry_count < max_retries
-          Rails.logger.warn "[TaskAutomation] add_watchers_to_issue: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
           issue.reload
           retry
         else
-          Rails.logger.error "[TaskAutomation] add_watchers_to_issue: StaleObjectError после #{max_retries} попыток"
           # Не прерываем выполнение, это не критично
         end
       end
@@ -676,49 +646,31 @@ module TaskAutomation
     # Расчет дат для задачи без подзадач (или для родительской задачи)
     # ============================================================================
     def calculate_single_issue_dates(issue, template_issue)
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: НАЧАЛО - issue_id=#{issue.id}, lock_version=#{issue.lock_version}"
       
       duration_field_id = @custom_field_ids[FIELD_DURATION_DAYS]
       end_on_working_day_field_id = @custom_field_ids[FIELD_END_ON_WORKING_DAY]
       
-      # ✅ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration_field_id=#{duration_field_id.inspect}"
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: FIELD_DURATION_DAYS='#{FIELD_DURATION_DAYS}'"
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: @custom_field_ids=#{@custom_field_ids.inspect}"
-      
-      # Проверка start_date
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: issue.start_date=#{issue.start_date.inspect}"
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: template_issue.id=#{template_issue.id}"
-      
       # Получение duration
       raw_duration = template_issue.custom_field_value(duration_field_id) if duration_field_id.present?
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: raw_duration=#{raw_duration.inspect} (class: #{raw_duration.class})"
       
       duration = duration_field_id.present? ? 
                   (template_issue.custom_field_value(duration_field_id).to_i rescue 0) : 0
       
-      Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration=#{duration}"
       
       end_on_working_day = end_on_working_day_field_id.present? && 
                           (template_issue.custom_field_value(end_on_working_day_field_id).to_i == 1)
       
       if duration == 0
         issue.due_date = issue.start_date
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: duration=0, due_date=start_date=#{issue.due_date.inspect}"
       else
         issue.due_date = issue.start_date + duration.days
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: due_date=start_date(#{issue.start_date}) + #{duration}.days = #{issue.due_date.inspect}"
       end
       
       if end_on_working_day && issue.due_date.present? && !TaskAutomation::Service.working_day?(issue.due_date)
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: due_date выпадает на выходной (#{issue.due_date.strftime('%A')}), сдвигаем НАЗАД"
-        
         adjusted_due_date = TaskAutomation::Service.shift_to_working_day(issue.due_date, direction: :backward)
         days_shift = (issue.due_date - adjusted_due_date).to_i
         issue.start_date = issue.start_date - days_shift.days
         issue.due_date = adjusted_due_date
-        
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: Сдвинуто - start_date=#{issue.start_date}, due_date=#{issue.due_date}"
       end
       
       # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
@@ -732,26 +684,19 @@ module TaskAutomation
         
         # Reload для получения актуального lock_version
         issue.reload
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: После reload - lock_version=#{issue.lock_version}"
         
         # ✅ ВОССТАНАВЛИВАЕМ вычисленные даты после reload
         issue.due_date = calculated_due_date
         issue.start_date = calculated_start_date
-        
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: ПЕРЕД сохранением - due_date=#{issue.due_date.inspect}"
 
         issue.save!(notifications: false)
 
-        Rails.logger.info "[TaskAutomation] calculate_single_issue_dates: ПОСЛЕ сохранения - due_date=#{issue.due_date.inspect}"
-        
       rescue ActiveRecord::StaleObjectError => e
         retry_count += 1
         
         if retry_count < max_retries
-          Rails.logger.warn "[TaskAutomation] calculate_single_issue_dates: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
           retry
         else
-          Rails.logger.error "[TaskAutomation] calculate_single_issue_dates: StaleObjectError после #{max_retries} попыток"
           add_error(I18n.t('task_automation.log.stale_object_error', 
                            issue_id: issue.id, 
                            retries: max_retries), template_issue.id)
@@ -786,15 +731,12 @@ module TaskAutomation
       # КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
       # ✅ ДЛЯ ПОДЗАДАЧ: сдвигаем ВПЕРЁД (не назад как у основных задач)
       if end_on_working_day && subtask.due_date.present? && !TaskAutomation::Service.working_day?(subtask.due_date)
-        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: due_date выпадает на выходной (#{subtask.due_date.strftime('%A')}), сдвигаем ВПЕРЁД"
         
         # ✅ Сдвигаем ВПЕРЁД к ближайшему рабочему дню (для подзадач)
         adjusted_due_date = TaskAutomation::Service.shift_to_working_day(subtask.due_date, direction: :forward)
         
         # ✅ start_date НЕ меняем (только для подзадач)
         subtask.due_date = adjusted_due_date
-        
-        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Сдвинуто - start_date=#{subtask.start_date}, due_date=#{subtask.due_date}"
       end
       
       # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
@@ -808,7 +750,6 @@ module TaskAutomation
         
         # Гарантированный возврат даты (даже если что-то пошло не так)
         result_date = subtask.due_date || subtask.start_date
-        Rails.logger.info "[TaskAutomation] calculate_subtask_due_date: Подзадача ##{subtask.id} сохранена - start_date=#{subtask.start_date}, due_date=#{result_date}"
         
         result_date
         
@@ -816,11 +757,9 @@ module TaskAutomation
         retry_count += 1
         
         if retry_count < max_retries
-          Rails.logger.warn "[TaskAutomation] calculate_subtask_due_date: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
           subtask.reload
           retry
         else
-          Rails.logger.error "[TaskAutomation] calculate_subtask_due_date: StaleObjectError после #{max_retries} попыток"
           add_error(I18n.t('task_automation.log.stale_object_error', 
                            issue_id: subtask.id, 
                            retries: max_retries), subtask_template.id)
@@ -881,7 +820,6 @@ module TaskAutomation
           current_start_date = group_max_end + 1.day
         else
           current_start_date = group_start_date + 1.day
-          Rails.logger.warn "[TaskAutomation] process_subtasks: group_max_end nil для группы #{order}"
         end
       end
       
@@ -980,18 +918,14 @@ module TaskAutomation
 
         copy_attachments(subtask_template, subtask)
 
-        Rails.logger.info "[TaskAutomation] create_target_subtask: Подзадача создана - issue_id=#{subtask.id}"
-        
         subtask
         
       rescue ActiveRecord::StaleObjectError => e
         retry_count += 1
         
         if retry_count < max_retries
-          Rails.logger.warn "[TaskAutomation] create_target_subtask: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
           retry
         else
-          Rails.logger.error "[TaskAutomation] create_target_subtask: StaleObjectError после #{max_retries} попыток"
           add_error(I18n.t('task_automation.log.stale_object_error', 
                            issue_id: subtask.id, 
                            retries: max_retries), subtask_template.id) 
@@ -1299,12 +1233,6 @@ module TaskAutomation
           notified_watchers = issue.notified_watchers.map(&:login)
           all_recipients = (issue.notified_users | issue.notified_watchers | issue.notified_mentions).map(&:login)
           
-          Rails.logger.info "[TaskAutomation] send_creation_notifications: issue_id=#{issue.id}"
-          Rails.logger.info "[TaskAutomation]   notified_users: #{notified_users.join(', ')}"
-          Rails.logger.info "[TaskAutomation]   notified_watchers: #{notified_watchers.join(', ')}"
-          Rails.logger.info "[TaskAutomation]   all_recipients (после dedup): #{all_recipients.join(', ')}"
-          Rails.logger.info "[TaskAutomation]   assigned_to: #{issue.assigned_to&.login}"
-          
           # Используем встроенный метод Redmine
           Mailer.deliver_issue_add(issue)
           
@@ -1315,7 +1243,6 @@ module TaskAutomation
       rescue => e
         add_warning(I18n.t('task_automation.log.notification_error', 
                            error: e.message), template_issue_id)
-        Rails.logger.error "[TaskAutomation] send_creation_notifications: #{e.class}: #{e.message}"
       end
     end
 
@@ -1380,11 +1307,9 @@ module TaskAutomation
     # ============================================================================
     def log_task_creation_in_template_history(template_issue, target_issue_id, old_next_date, new_next_date)
       begin
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: НАЧАЛО - template_issue_id=#{template_issue.id}"
         
         # Получаем пользователя для журналирования
         user = User.find(@settings[:author_id])
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: user_id=#{user.id}, login=#{user.login}"
         
         # Инициализируем журнал для задачи-шаблона
         if target_issue_id.present?
@@ -1394,15 +1319,10 @@ module TaskAutomation
           template_issue.init_journal(user, " ")
         end
 
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: журнал инициализирован"
-        
         # Получаем ID кастомного поля "Дата следующего выполнения"
         date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
         
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: date_field_id=#{date_field_id}"
-        
         unless date_field_id.present?
-          Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: date_field_id не найден"
           return
         end
         
@@ -1414,32 +1334,21 @@ module TaskAutomation
           value: new_next_date.present? ? format_date(new_next_date.to_date) : nil
         )
         
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: journal_detail создан"
-        
         template_issue.current_journal.details << journal_detail
-        
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: detail добавлен в журнал"
         
         # ✅ ИСПРАВЛЕНО: Повторная попытка сохранения при StaleObjectError
         max_retries = 3
         retry_count = 0
         
         begin
-          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПЕРЕД сохранением template_issue"
-          
           template_issue.save!(notifications: false)
-          
-          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: ПОСЛЕ сохранения template_issue"
-          
         rescue ActiveRecord::StaleObjectError => e
           retry_count += 1
           
           if retry_count < max_retries
-            Rails.logger.warn "[TaskAutomation] log_task_creation_in_template_history: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
             template_issue.reload
             retry
           else
-            Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: StaleObjectError после #{max_retries} попыток"
             add_warning(I18n.t('task_automation.log.stale_object_warning', 
                               issue_id: template_issue.id, 
                               retries: max_retries), template_issue.id)
@@ -1448,14 +1357,11 @@ module TaskAutomation
         end
         
         last_journal = template_issue.journals.order(:id => :desc).first
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal_id=#{last_journal&.id}"
         
         if last_journal
           Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.notes='#{last_journal.notes}'"
           Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.details.count=#{last_journal.details.count}"
         end
-        
-        Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: Запись добавлена в историю шаблона ##{template_issue.id}"
         
       rescue => e
         Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: ОШИБКА - #{e.class}: #{e.message}"
@@ -1691,17 +1597,13 @@ module TaskAutomation
       
       begin
         template_issue.save!(notifications: false)
-        Rails.logger.info "[TaskAutomation] update_next_execution_date_to: Дата обновлена на #{new_date}"
-        
       rescue ActiveRecord::StaleObjectError => e
         retry_count += 1
         
         if retry_count < max_retries
-          Rails.logger.warn "[TaskAutomation] update_next_execution_date_to: StaleObjectError, попытка #{retry_count}/#{max_retries}, retry..."
           template_issue.reload
           retry
         else
-          Rails.logger.error "[TaskAutomation] update_next_execution_date_to: StaleObjectError после #{max_retries} попыток"
           add_warning(I18n.t('task_automation.log.stale_object_warning', 
                             issue_id: template_issue.id, 
                             retries: max_retries), template_issue.id)
@@ -1784,7 +1686,6 @@ module TaskAutomation
       end
       
       issue.category = category
-      Rails.logger.info "[TaskAutomation] set_category_field: Категория установлена - #{category.name}"
     end
 
     # ============================================================================
@@ -1811,7 +1712,6 @@ module TaskAutomation
       end
       
       issue.fixed_version = version
-      Rails.logger.info "[TaskAutomation] set_version_field: Версия установлена - #{version.name}"
     end
 
     # ============================================================================
@@ -1837,7 +1737,6 @@ module TaskAutomation
       end
       
       issue.estimated_hours = estimated_hours
-      Rails.logger.info "[TaskAutomation] set_estimated_hours_field: Оценка установлена - #{estimated_hours}"
     end
 
     # ============================================================================
@@ -1864,7 +1763,6 @@ module TaskAutomation
       end
       
       issue.done_ratio = done_ratio
-      Rails.logger.info "[TaskAutomation] set_done_ratio_field: Готовность установлена - #{done_ratio}%"
     end
 
     # ============================================================================
@@ -1892,7 +1790,6 @@ module TaskAutomation
       end
       
       issue.priority = priority
-      Rails.logger.info "[TaskAutomation] set_priority_field: Приоритет установлен - #{priority.name}"
     end
 
   end

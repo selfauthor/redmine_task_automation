@@ -8,13 +8,8 @@ class TaskAutomationSettingsController < ApplicationController
   before_action :load_settings, only: [:test_run, :test]
 
 def test_run
-  Rails.logger.info "[TaskAutomation] [CONTROLLER] >>> НАЧАЛО test_run"
-  Rails.logger.info "[TaskAutomation] Запущен ручной запуск обработки задач"
-  
   begin
-    Rails.logger.info "[TaskAutomation] [CONTROLLER] Вызов TaskAutomation::Service.process..."
     result = TaskAutomation::Service.process
-    Rails.logger.info "[TaskAutomation] [CONTROLLER] Process завершён. result[:success]: #{result[:success]}"
     
     if result[:success]
       message = I18n.t('task_automation.flash.run_success',
@@ -27,19 +22,15 @@ def test_run
                        errors: result[:errors].count)
       flash[:warning] = message
 
-      Rails.logger.info "[TaskAutomation] [CONTROLLER] Ошибок в результате: #{result[:errors].count}"
       result[:errors].each_with_index do |error, idx|
         Rails.logger.error "[TaskAutomation] [CONTROLLER] Ошибка ##{idx + 1}: #{error}"
       end
     end
 
   rescue => e
-    Rails.logger.error "[TaskAutomation] [CONTROLLER] Критическая ошибка: #{e.class}: #{e.message}"
-    Rails.logger.error "[TaskAutomation] [CONTROLLER] Backtrace: #{e.backtrace.first(10).join("\n")}"
     flash[:error] = I18n.t('task_automation.flash.run_error', error: e.message)
   end
 
-  Rails.logger.info "[TaskAutomation] [CONTROLLER] <<< КОНЕЦ test_run, редирект"
   redirect_to controller: 'settings', action: 'plugin', id: 'redmine_task_automation'
 end
 
@@ -193,7 +184,6 @@ end
       TaskAutomation::Service.log_test_results(test_results)
 
     rescue => e
-      Rails.logger.error "[TaskAutomation] Ошибка тестирования настроек: #{e.message}  "
       test_results << { status: 'error', message: I18n.t('task_automation.test.general_error', error: e.message) }
       TaskAutomation::Service.log_message('error', "[ТЕСТ] Критическая ошибка: #{e.message}  ")
     end
@@ -203,7 +193,6 @@ end
   end
 
   def clear_test_results
-    Rails.logger.info "[TaskAutomation] Очистка результатов тестирования"
     session[:task_automation_test_results] = nil
     flash[:notice] = I18n.t('task_automation.flash.test_results_cleared')
 

@@ -586,42 +586,26 @@ module TaskAutomation
     # Метод проверки, можно ли группе назначать задачи в проекте
     # ============================================================================
     def self.group_can_be_assigned?(group_name, project_id)
-      # --- Логирование начала проверки ---
-      Rails.logger.info "[TaskAutomation] Проверка назначения группы: group_name='#{group_name}', project_id=#{project_id}"
-      
       # --- Шаг 1: Поиск группы ---
       group = Group.find_by(name: group_name)
       if group.nil?
-        Rails.logger.warn "[TaskAutomation] Группа не найдена: name='#{group_name}'"
         return false
       end
-      Rails.logger.debug "[TaskAutomation] Группа найдена: id=#{group.id}, name='#{group.name}'"
       
       # --- Шаг 2: Поиск проекта ---
       project = Project.find_by(id: project_id)
       if project.nil?
-        Rails.logger.warn "[TaskAutomation] Проект не найден: id=#{project_id}"
         return false
       end
-      Rails.logger.debug "[TaskAutomation] Проект найден: id=#{project.id}, identifier='#{project.identifier}'"
       
       # --- Шаг 3: Поиск связи проекта и группы (Member) ---
       member = Member.find_by(project: project, principal: group)
       if member.nil?
-        Rails.logger.warn "[TaskAutomation] Группа не является участником проекта: group_id=#{group.id}, project_id=#{project_id}"
         return false
       end
-      Rails.logger.debug "[TaskAutomation] Связь найдена: member_id=#{member.id}"
       
       # --- Шаг 4: Проверка ролей и прав ---
       has_permission = member.roles.any? { |role| role.permissions.include?(:edit_issues) }
-      
-      if has_permission
-        Rails.logger.info "[TaskAutomation] Проверка пройдена: группа '#{group_name}' имеет право edit_issues в проекте #{project_id}"
-      else
-        Rails.logger.warn "[TaskAutomation] Проверка не пройдена: у группы '#{group_name}' нет права edit_issues в проекте #{project_id}"
-        Rails.logger.debug "[TaskAutomation] Роли группы в проекте: #{member.roles.map { |r| "#{r.name}(#{r.id})" }.join(', ')}"
-      end
       
       return has_permission
     end
@@ -755,7 +739,6 @@ module TaskAutomation
       end
 
       if project.archived?
-        Rails.logger.warn "[TaskAutomation] get_target_project_by_fragment: проект архивирован"
         return nil
       end
       
@@ -767,19 +750,16 @@ module TaskAutomation
     # ============================================================================
     def self.get_target_tracker_by_name(tracker_name, target_project, custom_field_ids)
       unless tracker_name.present?
-        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: имя трекера пустое"
         return nil
       end
       
       tracker = Tracker.find_by(name: tracker_name)
       
       unless tracker
-        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: трекер не найден"
         return nil
       end
       
       unless target_project.trackers.include?(tracker)
-        Rails.logger.error "[TaskAutomation] get_target_tracker_by_name: трекер недоступен в проекте"
         return nil
       end
       
@@ -791,14 +771,12 @@ module TaskAutomation
     # ============================================================================
     def self.get_assignee_by_search_string(assignee_search_string, custom_field_ids)
       unless assignee_search_string.present?
-        Rails.logger.error "[TaskAutomation] get_assignee_by_search_string: строка поиска пустая"
         return nil
       end
       
       assignee = find_user_or_group_by_name_fragment(assignee_search_string.to_s.strip)
       
       unless assignee
-        Rails.logger.error "[TaskAutomation] get_assignee_by_search_string: назначенный не найден"
         return nil
       end
       
