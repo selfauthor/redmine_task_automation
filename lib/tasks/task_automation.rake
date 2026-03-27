@@ -53,7 +53,7 @@ namespace :redmine do
       end
       
       File.write(lock_file, Process.pid)
-      log_to_file(I18n.t('task_automation.rake.lock_file_created'), 'INFO')
+      # log_to_file(I18n.t('task_automation.rake.lock_file_created'), 'INFO')
       
       begin
         # ====================================================================
@@ -145,7 +145,7 @@ namespace :redmine do
         # ====================================================================
         if File.exist?(lock_file)
           File.delete(lock_file)
-          log_to_file(I18n.t('task_automation.rake.lock_file_removed'), 'INFO')
+          # log_to_file(I18n.t('task_automation.rake.lock_file_removed'), 'INFO')
         end
       end
     end
