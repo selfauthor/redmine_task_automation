@@ -675,7 +675,7 @@ module TaskAutomation
       if duration == 0
         issue.due_date = issue.start_date
       else
-        issue.due_date = issue.start_date + duration.days
+        issue.due_date = issue.start_date + (duration - 1).days   #1 день - это завершение задачи в день начала
       end
       
       if end_on_working_day && issue.due_date.present? && !TaskAutomation::Service.working_day?(issue.due_date)
@@ -737,7 +737,7 @@ module TaskAutomation
       if duration == 0
         subtask.due_date = subtask.start_date
       else
-        subtask.due_date = subtask.start_date + duration.days
+        subtask.due_date = subtask.start_date + (duration - 1).days   #1 день - это завершение задачи в день начала
       end
       
       # КОРРЕКТИРОВКА: Если "Конец в рабочий день" = да и due_date на выходном
