@@ -54,6 +54,7 @@ en:
       field_not_available: "Field '%{field_name}' is not available for tracker '%{tracker_name}'"
       field_not_found: "Custom field '%{field_name}' not found in system"
       required_field_missing: "Required field '%{field_name}' is not filled in created task"
+      field_not_available_in_scope: "Field '%{field_name}' is specified in the template but is not available in the target project '%{project_name}'. The value will be skipped."
       
       # Date and Calculations
       date_calculation_error: "Error calculating next execution date: %{error}"

@@ -54,6 +54,7 @@ ru:
       field_not_available: "Поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
       field_not_found: "Кастомное поле '%{field_name}' не найдено в системе"
       required_field_missing: "Обязательное поле '%{field_name}' не заполнено в создаваемой задаче"
+      field_not_available_in_scope: "Поле '%{field_name}' настроено в шаблоне, но не доступно в проекте '%{project_name}'. Значение пропущено."
       
       # Дата и расчёты
       date_calculation_error: "Ошибка расчета даты следующего выполнения: %{error}"
