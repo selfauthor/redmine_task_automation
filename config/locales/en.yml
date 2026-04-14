@@ -119,6 +119,9 @@ en:
       standard_field_invalid_value: "Standard field '%{field_name}': invalid value '%{field_value}'"
       standard_field_not_available: "Standard field '%{field_name}' is not available for tracker '%{tracker_name}'"
       standard_field_not_found: "Standard field '%{field_name}': value '%{field_value}' not found in project"
+      field_not_in_tracker: "Field '%{field_name}' is not included in the target tracker. The value remains in the description."
+      field_set_error: "Error setting value for field '%{field_name}': %{error}"
+      required_field_missing_warning: "Required field '%{field_name}' is missing. Issue created with a warning."
       
       # Subtasks
       subtask_chain_exceeds_parent: "Subtask chain exceeds parent task deadline by %{days} days (parent deadline: %{parent_due}, chain end: %{subtask_chain_end})"

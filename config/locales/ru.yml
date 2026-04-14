@@ -119,7 +119,10 @@ ru:
       standard_field_invalid_value: "Стандартное поле '%{field_name}': некорректное значение '%{field_value}'"
       standard_field_not_available: "Стандартное поле '%{field_name}' недоступно для трекера '%{tracker_name}'"
       standard_field_not_found: "Стандартное поле '%{field_name}': значение '%{field_value}' не найдено в проекте"
-      
+      field_not_in_tracker: "Поле '%{field_name}' не включено в трекер назначения. Значение оставлено в описании."
+      field_set_error: "Ошибка установки значения поля '%{field_name}': %{error}"
+      required_field_missing_warning: "Обязательное поле '%{field_name}' не заполнено. Задача создана с предупреждением."
+
       # Подзадачи
       subtask_chain_exceeds_parent: "Цепочка подзадач выходит за пределы срока родительской задачи на %{days} дн. (срок родителя: %{parent_due}, окончание цепочки: %{subtask_chain_end})"
       subtask_due_date_not_set: "Подзадача #%{subtask_id}: не установлена дата завершения"

@@ -330,69 +330,6 @@ module TaskAutomation
       end
     end
 
-    def create_target_issue(template_issue, target_project, target_tracker, assignee)
-      issue = nil
-      
-      ActiveRecord::Base.transaction do
-        issue = Issue.new
-        issue.project = target_project
-        issue.tracker = target_tracker
-        issue.author = User.find(@settings[:author_id])
-        issue.subject = template_issue.subject
-        
-        # ✅ ИЗМЕНЕНО: Получаем поля и использованные строки
-        parse_result = parse_custom_fields_from_description(template_issue.description)
-        custom_fields_from_description = parse_result[:fields]
-        used_lines = parse_result[:used_lines]
-        
-        # ✅ ИЗМЕНЕНО: Удаляем использованные строки из описания
-        remaining_lines = template_issue.description.lines.reject { |line| used_lines.include?(line.chomp) }
-        issue.description = remaining_lines.join
-        
-        issue.status = target_tracker.default_status
-        issue.priority = IssuePriority.default
-        
-        # Дата начала = дате следующего выполнения из шаблона
-        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
-        next_date = template_issue.custom_field_value(date_field_id)
-        issue.start_date = next_date.to_date if next_date.present?
-        
-        issue.assigned_to = assignee
-        
-        # Отключаем уведомления перед сохранением
-        issue.notify = false
-        
-        # ✅ ИЗМЕНЕНО: Сначала устанавливаем стандартные поля
-        unless custom_fields_from_description.empty?
-          set_standard_fields(issue, custom_fields_from_description, template_issue.id)
-        end
-        
-        # Затем устанавливаем кастомные поля
-        unless custom_fields_from_description.empty?
-          set_custom_fields(issue, custom_fields_from_description, template_issue.id)
-        end
-        
-        # Первое сохранение
-        issue.save!
-        
-        # Копирование вложений
-        copy_attachments(template_issue, issue)
-        
-      end
-      
-      # Перезагружаем объект после транзакции
-      issue.reload if issue.persisted?
-      
-      issue
-    rescue ActiveRecord::RecordInvalid => e
-      error_message = extract_validation_error_message(e, target_project, assignee, template_issue.id) 
-      add_error(error_message, template_issue.id)
-      nil
-    rescue => e
-      add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
-      nil
-    end
-
     # ============================================================================
     # НОВЫЙ МЕТОД: Извлечение понятного сообщения об ошибке валидации
     # ============================================================================
@@ -468,33 +405,6 @@ module TaskAutomation
       end
       
       { fields: custom_fields, used_lines: used_lines }
-    end
-
-    def set_custom_fields(issue, custom_fields_hash, template_issue_id)
-      custom_fields_hash.each do |field_name, field_value|
-        # Пропускаем стандартные поля - они обрабатываются отдельно
-        next if TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING.key?(field_name)
-        
-        field_id = TaskAutomation::Service.get_custom_field_id_by_name(field_name)
-        
-        unless field_id.present?
-          add_warning(I18n.t('task_automation.log.field_not_found', field_name: field_name), template_issue_id)
-          next
-        end
-        
-        custom_field = CustomField.find_by(id: field_id)
-        
-        unless custom_field && custom_field.trackers.include?(issue.tracker)
-          add_warning(I18n.t('task_automation.log.field_not_available', 
-                             field_name: field_name, 
-                             tracker_name: issue.tracker.name), template_issue_id)
-          next
-        end
-        
-        issue.custom_field_values = { field_id => field_value }
-      end
-      
-      check_required_fields(issue, template_issue_id)
     end
 
     def check_required_fields(issue, template_issue_id)
@@ -867,86 +777,6 @@ module TaskAutomation
       return 0 unless order_field_id.present?
       
       subtask.custom_field_value(order_field_id).to_i
-    end
-
-    # ============================================================================
-    # Создание подзадачи для целевой задачи
-    # ============================================================================
-    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date, watcher_ids = [])
-      subtask = Issue.new
-      subtask.project = target_project 
-      
-      # Получаем трекер подзадачи
-      tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
-      tracker_name = subtask_template.custom_field_value(tracker_field_id) if tracker_field_id.present?
-      
-      subtask_tracker = TaskAutomation::Service.get_target_tracker_by_name(
-        tracker_name, target_project, @custom_field_ids)
-      
-      unless subtask_tracker
-        add_error(I18n.t('task_automation.log.subtask_tracker_not_found'), subtask_template.id)
-        return nil
-      end
-
-      subtask.tracker = subtask_tracker
-      subtask.parent_id = parent_issue.id
-      subtask.author = User.find(@settings[:author_id])
-      subtask.subject = subtask_template.subject
-      
-      # ✅ ИЗМЕНЕНО: Получаем поля и использованные строки
-      parse_result = parse_custom_fields_from_description(subtask_template.description)
-      custom_fields_from_description = parse_result[:fields]
-      used_lines = parse_result[:used_lines]
-      
-      # ✅ ИЗМЕНЕНО: Удаляем использованные строки из описания
-      remaining_lines = subtask_template.description.lines.reject { |line| used_lines.include?(line.chomp) }
-      subtask.description = remaining_lines.join
-      
-      subtask.start_date = start_date
-      subtask.assigned_to = assignment_group
-      subtask.status = subtask_tracker.default_status
-      
-      # ✅ ИЗМЕНЕНО: Сначала устанавливаем стандартные поля
-      unless custom_fields_from_description.empty?
-        set_standard_fields(subtask, custom_fields_from_description, subtask_template.id)
-      end
-      
-      # Затем устанавливаем кастомные поля
-      unless custom_fields_from_description.empty?
-        set_custom_fields(subtask, custom_fields_from_description, subtask_template.id)
-      end
-      
-      # Сохранение подзадачи
-      max_retries = 3
-      retry_count = 0
-      
-      begin
-        subtask.save!(notifications: false)
-
-        # Добавляем наблюдателей к подзадаче
-        if watcher_ids.any?
-          add_watchers_to_issue(subtask, watcher_ids)
-        end
-
-        copy_attachments(subtask_template, subtask)
-
-        subtask
-        
-      rescue ActiveRecord::StaleObjectError => e
-        retry_count += 1
-        
-        if retry_count < max_retries
-          retry
-        else
-          add_error(I18n.t('task_automation.log.stale_object_error', 
-                           issue_id: subtask.id, 
-                           retries: max_retries), subtask_template.id) 
-          nil
-        end
-      rescue => e
-        add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
-        nil
-      end
     end
 
     # ============================================================================
@@ -1653,27 +1483,6 @@ module TaskAutomation
       end
     end
 
-    def set_standard_fields(issue, custom_fields_hash, template_issue_id)
-      TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING.each do |field_label, field_attr|
-        next unless custom_fields_hash.key?(field_label)
-        
-        field_value = custom_fields_hash[field_label]
-        
-        case field_attr
-        when :category_id
-          set_category_field(issue, field_value, template_issue_id)
-        when :fixed_version_id
-          set_version_field(issue, field_value, template_issue_id)
-        when :estimated_hours
-          set_estimated_hours_field(issue, field_value, template_issue_id)
-        when :done_ratio
-          set_done_ratio_field(issue, field_value, template_issue_id)
-        when :priority_id
-          set_priority_field(issue, field_value, template_issue_id)
-        end
-      end
-    end
-
     # ============================================================================
     # Метод установки категории
     # ============================================================================
@@ -1802,6 +1611,257 @@ module TaskAutomation
       end
       
       issue.priority = priority
+    end
+
+    # ============================================================================
+    # Создание целевой задачи
+    # ============================================================================
+    def create_target_issue(template_issue, target_project, target_tracker, assignee)
+      issue = nil
+      
+      ActiveRecord::Base.transaction do
+        issue = Issue.new
+        issue.project = target_project
+        issue.tracker = target_tracker
+        issue.author = User.find(@settings[:author_id])
+        issue.subject = template_issue.subject
+        
+        # 1. Парсим описание шаблона
+        parse_result = parse_custom_fields_from_description(template_issue.description)
+        raw_fields = parse_result[:fields]
+        raw_used_lines = parse_result[:used_lines]
+        
+        # 2. Применяем поля к новой задаче и получаем список реально использованных строк
+        #    (используются только те поля, которые есть в проекте и трекере)
+        final_used_lines = apply_fields_to_issue(issue, raw_fields, raw_used_lines, template_issue.id)
+        
+        # 3. Удаляем из описания только те строки, которые реально были применены
+        remaining_lines = template_issue.description.lines.reject { |line| final_used_lines.include?(line.chomp) }
+        issue.description = remaining_lines.join
+        
+        issue.status = target_tracker.default_status
+        issue.priority = IssuePriority.default
+        
+        # Дата начала = дате следующего выполнения из шаблона
+        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+        next_date = template_issue.custom_field_value(date_field_id)
+        issue.start_date = next_date.to_date if next_date.present?
+        
+        issue.assigned_to = assignee
+        issue.notify = false
+        
+        # 4. Проверка обязательных полей (перед сохранением)
+        check_and_warn_missing_required_fields(issue, template_issue.id)
+        
+        # Первое сохранение
+        issue.save!
+        
+        # Копирование вложений
+        copy_attachments(template_issue, issue)
+      end
+      
+      issue.reload if issue.persisted?
+      issue
+    rescue ActiveRecord::RecordInvalid => e
+      error_message = extract_validation_error_message(e, target_project, assignee, template_issue.id) 
+      add_error(error_message, template_issue.id)
+      nil
+    rescue => e
+      add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
+      nil
+    end
+
+    # ============================================================================
+    # Создание подзадачи
+    # ============================================================================
+    def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date, watcher_ids = [])
+      subtask = Issue.new
+      subtask.project = target_project 
+      
+      # Получаем трекер подзадачи
+      tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
+      tracker_name = subtask_template.custom_field_value(tracker_field_id) if tracker_field_id.present?
+      
+      subtask_tracker = TaskAutomation::Service.get_target_tracker_by_name(
+        tracker_name, target_project, @custom_field_ids)
+      
+      unless subtask_tracker
+        add_error(I18n.t('task_automation.log.subtask_tracker_not_found'), subtask_template.id)
+        return nil
+      end
+
+      subtask.tracker = subtask_tracker
+      subtask.parent_id = parent_issue.id
+      subtask.author = User.find(@settings[:author_id])
+      subtask.subject = subtask_template.subject
+      
+      # 1. Парсим описание
+      parse_result = parse_custom_fields_from_description(subtask_template.description)
+      raw_fields = parse_result[:fields]
+      raw_used_lines = parse_result[:used_lines]
+      
+      # 2. Применяем поля (с проверкой наличия в проекте/трекере)
+      final_used_lines = apply_fields_to_issue(subtask, raw_fields, raw_used_lines, subtask_template.id)
+      
+      # 3. Чистим описание
+      remaining_lines = subtask_template.description.lines.reject { |line| final_used_lines.include?(line.chomp) }
+      subtask.description = remaining_lines.join
+      
+      subtask.start_date = start_date
+      subtask.assigned_to = assignment_group
+      subtask.status = subtask_tracker.default_status
+      
+      # 4. Проверка обязательных полей
+      check_and_warn_missing_required_fields(subtask, subtask_template.id)
+      
+      # Сохранение подзадачи
+      max_retries = 3
+      retry_count = 0
+      
+      begin
+        subtask.save!(notifications: false)
+
+        if watcher_ids.any?
+          add_watchers_to_issue(subtask, watcher_ids)
+        end
+
+        copy_attachments(subtask_template, subtask)
+
+        subtask
+        
+      rescue ActiveRecord::StaleObjectError => e
+        retry_count += 1
+        if retry_count < max_retries
+          retry
+        else
+          add_error(I18n.t('task_automation.log.stale_object_error', issue_id: subtask.id, retries: max_retries), subtask_template.id) 
+          nil
+        end
+      rescue => e
+        add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
+        nil
+      end
+    end
+
+    # ============================================================================
+    # Применение полей к задаче с проверкой доступности
+    # Возвращает массив строк, которые БЫЛИ успешно применены (для удаления из описания)
+    # ============================================================================
+    def apply_fields_to_issue(issue, fields_hash, used_lines, template_issue_id)
+      successfully_applied_lines = []
+      
+      # Получаем список доступных кастомных полей (пересечение проекта и трекера)
+      available_cf_names = issue.available_custom_fields.map(&:name)
+      
+      fields_hash.each do |field_name, field_value|
+        original_line = used_lines.find { |line| line.start_with?("#{field_name}:") }
+        next unless original_line
+        
+        # 1. Проверяем, является ли поле стандартным
+        standard_attr = TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING[field_name]
+        
+        if standard_attr
+          # Проверяем, включено ли стандартное поле в трекере
+          if issue.tracker.core_fields.include?(standard_attr.to_s)
+            set_standard_field_by_attr(issue, standard_attr, field_value, template_issue_id)
+            successfully_applied_lines << original_line
+          else
+            # Поле не включено в трекер -> не удаляем строку из описания
+            add_warning(I18n.t('task_automation.log.field_not_in_tracker', field_name: field_name), template_issue_id)
+          end
+        else
+          # 2. Если не стандартное, проверяем кастомное
+          if available_cf_names.include?(field_name)
+            # Поле доступно (есть и в проекте, и в трекере)
+            custom_field = issue.available_custom_fields.find { |cf| cf.name == field_name }
+            
+            # Пробуем установить значение
+            begin
+              issue.custom_field_values = { custom_field.id => field_value }
+              successfully_applied_lines << original_line
+            rescue => e
+              add_warning(I18n.t('task_automation.log.field_set_error', field_name: field_name, error: e.message), template_issue_id)
+            end
+          else
+            # Поля нет в проекте или трекере -> не удаляем строку из описания
+            # Это ключевое изменение логики
+          end
+        end
+      end
+      
+      successfully_applied_lines
+    end
+
+    # ============================================================================
+    # Установка стандартного поля по атрибуту
+    # ============================================================================
+    def set_standard_field_by_attr(issue, attr_symbol, value, template_issue_id)
+      case attr_symbol
+      when :category_id
+        set_category_field(issue, value, template_issue_id)
+      when :fixed_version_id
+        set_version_field(issue, value, template_issue_id)
+      when :estimated_hours
+        set_estimated_hours_field(issue, value, template_issue_id)
+      when :done_ratio
+        set_done_ratio_field(issue, value, template_issue_id)
+      when :priority_id
+        set_priority_field(issue, value, template_issue_id)
+      end
+    end
+
+    # ============================================================================
+    # Проверка и предупреждение о пропущенных обязательных полях
+    # ============================================================================
+    def check_and_warn_missing_required_fields(issue, template_issue_id)
+      # Проверяем кастомные поля
+      issue.available_custom_fields.each do |cf|
+        if cf.is_required
+          val = issue.custom_field_value(cf.id)
+          # Проверка на пустоту (учитывая массивы для мультивыбора)
+          is_blank = val.respond_to?(:detect) ? val.detect(&:present?).nil? : val.blank?
+          
+          if is_blank
+            add_warning(I18n.t('task_automation.log.required_field_missing_warning', field_name: cf.name), template_issue_id)
+          end
+        end
+      end
+      
+      # Стандартные поля в Redmine обычно не имеют флага is_required в БД,
+      # обязательность регулируется Workflow. Проверка Workflow до сохранения сложна,
+      # поэтому здесь ограничиваемся явными кастомными полями.
+    end
+
+    # ============================================================================
+    # Парсинг полей из описания
+    # ============================================================================
+    def parse_custom_fields_from_description(description)
+      return { fields: {}, used_lines: [] } unless description.present?
+      
+      custom_fields = {}
+      used_lines = []
+      
+      # Регулярное выражение для проверки формата кастомного поля
+      custom_field_pattern = /^[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9_\s-]*[A-Za-zА-Яа-яЁё0-9]:\s.+/
+      
+      description.lines.each do |line|
+        next unless line.match?(custom_field_pattern)
+        
+        if line.include?(':')
+          parts = line.split(':', 2)
+          if parts.length == 2
+            field_name = parts[0].strip
+            field_value = parts[1].strip
+            
+            unless field_name.blank?
+              custom_fields[field_name] = field_value
+              used_lines << line.chomp
+            end
+          end
+        end
+      end
+      
+      { fields: custom_fields, used_lines: used_lines }
     end
 
   end

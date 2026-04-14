@@ -1,7 +1,7 @@
 # Документация плагина Redmine Task Automation
 
-**Версия:** 1.0.3
-**Дата:** 10.04.2026  
+**Версия:** 1.0.4
+**Дата:** 14.04.2026  
 **Автор:** Якушев Андрей Викторович (iakushevav@mosreg.ru)
 
 ## Быстрый старт
@@ -48,6 +48,6 @@
 ---
 
 <p align="center">
-  <strong>Redmine Task Automation v1.0.3</strong><br>
+  <strong>Redmine Task Automation v1.0.4</strong><br>
   <em>Автоматизация создания задач в Redmine</em>
 </p>
