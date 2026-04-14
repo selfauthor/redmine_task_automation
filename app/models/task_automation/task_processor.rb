@@ -470,12 +470,9 @@ module TaskAutomation
       { fields: custom_fields, used_lines: used_lines }
     end
 
-    # ============================================================================
-    # ИЗМЕНЁННЫЙ МЕТОД: Установка кастомных полей из описания шаблона
-    # Добавлена проверка доступности поля в целевом проекте
-    # ============================================================================
     def set_custom_fields(issue, custom_fields_hash, template_issue_id)
       custom_fields_hash.each do |field_name, field_value|
+        # Пропускаем стандартные поля - они обрабатываются отдельно
         next if TaskAutomation::Configuration::STANDARD_FIELDS_MAPPING.key?(field_name)
         
         field_id = TaskAutomation::Service.get_custom_field_id_by_name(field_name)
@@ -487,46 +484,25 @@ module TaskAutomation
         
         custom_field = CustomField.find_by(id: field_id)
         
-        # Проверяем доступность поля и в трекере, и в проекте
-        available_in_tracker = custom_field.trackers.include?(issue.tracker)
-        available_in_project = field_available_in_project?(custom_field, issue.project)
-        
-        unless available_in_tracker && available_in_project
-          # Поле в шаблоне установлено, но отсутствует в трекере ИЛИ в проекте
-          # → Работа не прерывается, делается запись warning, добавление значения игнорируется
-          add_warning(I18n.t('task_automation.log.field_not_available_in_scope', field_name: field_name, project_name: issue.project.name), template_issue_id)
+        unless custom_field && custom_field.trackers.include?(issue.tracker)
+          add_warning(I18n.t('task_automation.log.field_not_available', 
+                             field_name: field_name, 
+                             tracker_name: issue.tracker.name), template_issue_id)
           next
         end
         
-        issue.custom_field_values[field_id] = field_value
+        issue.custom_field_values = { field_id => field_value }
       end
       
       check_required_fields(issue, template_issue_id)
     end
 
-    # ============================================================================
-    # Проверка обязательных полей
-    # Свёрка доступности поля в проекте перед проверкой обязательности
-    # ============================================================================
     def check_required_fields(issue, template_issue_id)
       issue.tracker.custom_fields.each do |custom_field|
-        # СЛУЧАЙ 3: Поле необязательное → пропускаем без уведомлений
-        next unless custom_field.is_required
-        
-        # ✅ Проверяем, доступно ли обязательное поле в целевом проекте
-        available_in_project = field_available_in_project?(custom_field, issue.project)
-        
-        unless available_in_project
-          # ✅ СЛУЧАЙ 2: Поле обязательное, но отсутствует в проекте (или трекере)
-          # → Проверка игнорируется, работа продолжается без уведомлений
-          next
-        end
-        
-        # ✅ СЛУЧАЙ 1: Поле обязательное, доступно в проекте и трекере, но значение не установлено
-        if issue.custom_field_value(custom_field.id).blank?
-          add_error(I18n.t('task_automation.log.required_field_missing', field_name: custom_field.name), template_issue_id)
-          # Прекращаем обработку текущего шаблона (откат транзакции в create_target_issue)
-          raise ActiveRecord::RecordInvalid.new(issue)
+        if custom_field.is_required
+          if issue.custom_field_value(custom_field.id).blank?
+            add_error(I18n.t('task_automation.log.required_field_missing', field_name: custom_field.name), template_issue_id)
+          end
         end
       end
     end
@@ -1826,15 +1802,6 @@ module TaskAutomation
       end
       
       issue.priority = priority
-    end
-
-    # ============================================================================
-    # Проверка доступности кастомного поля в целевом проекте
-    # Поле доступно, если оно привязано ко всем проектам (список пуст) 
-    # ИЛИ явно содержит целевой проект
-    # ============================================================================
-    def field_available_in_project?(custom_field, project)
-      custom_field.projects.empty? || custom_field.projects.include?(project)
     end
 
   end
