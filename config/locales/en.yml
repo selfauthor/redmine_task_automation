@@ -211,14 +211,14 @@ en:
       select_user: "-- Select user --"
       
       # Main settings fields
-      author_hint: "ID of user who will be specified as author"
+      author_hint: "User who will be specified as author"
       author_id: "Author of created tasks"
       run_now_hint: "Will immediately process all task templates"
-      source_project_hint: "ID of project where task templates are stored"
+      source_project_hint: "Project where task templates are stored"
       source_project_id: "Project with task templates"
-      subtask_tracker_hint: "ID of tracker that will be used for created subtasks"
+      subtask_tracker_hint: "Tracker that will be used for created subtasks"
       subtask_tracker_id: "Subtask tracker"
-      tracker_hint: "ID of tracker for created main tasks"
+      tracker_hint: "Tracker for created main tasks"
       tracker_id: "Main task tracker"
     
     settings_title: "Task Automation Settings"
