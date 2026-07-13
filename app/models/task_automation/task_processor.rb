@@ -557,7 +557,6 @@ module TaskAutomation
             watchable: issue,
             user: user
           )
-          Rails.logger.debug "[TaskAutomation] add_watcher_if_not_exists: создан Watcher для user=#{user.login}, issue=#{issue.id}"
         rescue => e
           Rails.logger.warn "[TaskAutomation] add_watcher_if_not_exists: ошибка создания Watcher - #{e.message}"
         end
@@ -1199,11 +1198,6 @@ module TaskAutomation
         end
         
         last_journal = template_issue.journals.order(:id => :desc).first
-        
-        if last_journal
-          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.notes='#{last_journal.notes}'"
-          Rails.logger.info "[TaskAutomation] log_task_creation_in_template_history: last_journal.details.count=#{last_journal.details.count}"
-        end
         
       rescue => e
         Rails.logger.error "[TaskAutomation] log_task_creation_in_template_history: ОШИБКА - #{e.class}: #{e.message}"
