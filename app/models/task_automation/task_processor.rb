@@ -1644,9 +1644,6 @@ module TaskAutomation
         issue.assigned_to = assignee
         issue.notify = false
         
-        # 4. Проверка обязательных полей (перед сохранением)
-        check_and_warn_missing_required_fields(issue, template_issue.id)
-        
         # Первое сохранение
         issue.save!
         
@@ -1704,9 +1701,6 @@ module TaskAutomation
       subtask.start_date = start_date
       subtask.assigned_to = assignment_group
       subtask.status = subtask_tracker.default_status
-      
-      # 4. Проверка обязательных полей
-      check_and_warn_missing_required_fields(subtask, subtask_template.id)
       
       # Сохранение подзадачи
       max_retries = 3
@@ -1806,25 +1800,10 @@ module TaskAutomation
 
     # ============================================================================
     # Проверка и предупреждение о пропущенных обязательных полях
+    # Метод удалён, т.к. при создании задачи, если поле обязательное,
+    # то при попытке сохранить Redmine сам выдаст соответствующие ошибки.
     # ============================================================================
-    def check_and_warn_missing_required_fields(issue, template_issue_id)
-      # Проверяем кастомные поля
-      issue.available_custom_fields.each do |cf|
-        if cf.is_required
-          val = issue.custom_field_value(cf.id)
-          # Проверка на пустоту (учитывая массивы для мультивыбора)
-          is_blank = val.respond_to?(:detect) ? val.detect(&:present?).nil? : val.blank?
-          
-          if is_blank
-            add_warning(I18n.t('task_automation.log.required_field_missing_warning', field_name: cf.name), template_issue_id)
-          end
-        end
-      end
-      
-      # Стандартные поля в Redmine обычно не имеют флага is_required в БД,
-      # обязательность регулируется Workflow. Проверка Workflow до сохранения сложна,
-      # поэтому здесь ограничиваемся явными кастомными полями.
-    end
+    # def check_and_warn_missing_required_fields(issue, template_issue_id)
 
     # ============================================================================
     # Парсинг полей из описания
