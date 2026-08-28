@@ -96,8 +96,8 @@ ru:
       processing_started: "Запуск обработки задач-шаблонов"
       processing_template: "Обработка шаблона #%{issue_id}"
       settings_invalid: "Настройки плагина невалидны"
-      summary_no_tasks: "Задачи не создавались"
-      summary_success: "Обработка завершена. Создано задач: %{issues}, подзадач: %{subtasks}"
+      summary_no_tasks: "Задачи не создавались; шаблонов с ошибками: %{errors}"
+      summary_success: "Обработка завершена. Создано задач: %{issues}, подзадач: %{subtasks}; шаблонов с ошибками: %{errors}"
       template_processing_error: "Ошибка обработки шаблона: %{error}"
       with_subtasks: "(подзадач: %{count})"
       

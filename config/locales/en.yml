@@ -96,8 +96,8 @@ en:
       processing_started: "Starting task template processing"
       processing_template: "Processing template #%{issue_id}"
       settings_invalid: "Plugin settings are invalid"
-      summary_no_tasks: "No tasks were created"
-      summary_success: "Processing completed. Created tasks: %{issues}, subtasks: %{subtasks}"
+      summary_no_tasks: "No tasks were created; templates with errors: %{errors}"
+      summary_success: "Processing completed. Created tasks: %{issues}, subtasks: %{subtasks}; templates with errors: %{errors}"
       template_processing_error: "Template processing error: %{error}"
       with_subtasks: "(subtasks: %{count})"
       

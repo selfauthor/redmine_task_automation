@@ -9,7 +9,7 @@ Redmine::Plugin.register :redmine_task_automation do
   author 'Андрей Якушев'
   author_url 'https://a2ya.ru'
   url 'https://github.com/selfauthor/redmine_task_automation'
-  version '1.0.7'
+  version '1.0.8'
   requires_redmine version_or_higher: '5.0.0'
   
   settings(

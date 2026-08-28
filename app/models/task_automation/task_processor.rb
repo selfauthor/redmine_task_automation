@@ -17,6 +17,7 @@ module TaskAutomation
       @messages = []
       @created_issues_count = 0
       @created_subtasks_count = 0
+      @error_templates_count = 0
       @settings = TaskAutomation::Service.get_settings
       @custom_field_ids = {}
       
@@ -50,6 +51,7 @@ module TaskAutomation
       log_entry += "#{message} "
       
       @errors << log_entry
+      @error_templates_count += 1 if issue_id.present?
       
       # Также логируем в файл (без дублирования префикса времени)
       TaskAutomation::Service.log_message('error', message, issue_id)
@@ -1053,10 +1055,12 @@ module TaskAutomation
         TaskAutomation::Service.log_message('info',
           I18n.t('task_automation.log.summary_success', 
                  issues: @created_issues_count,
-                 subtasks: @created_subtasks_count))
+                 subtasks: @created_subtasks_count,
+                 errors: @error_templates_count))
       else
         TaskAutomation::Service.log_message('info',
-          I18n.t('task_automation.log.summary_no_tasks'))
+          I18n.t('task_automation.log.summary_no_tasks',
+          errors: @error_templates_count))
       end
     end
 
