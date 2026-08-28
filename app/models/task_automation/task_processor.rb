@@ -310,7 +310,7 @@ module TaskAutomation
                  issue_id: target_issue.id,
                  subject: target_issue.subject,
                  subtasks: subtask_message),
-          target_issue.id)
+          template_issue.id)
         
         @created_issues_count += 1
 
@@ -1191,8 +1191,8 @@ module TaskAutomation
             retry
           else
             add_warning(I18n.t('task_automation.log.stale_object_warning', 
-                              issue_id: template_issue.id, 
-                              retries: max_retries), template_issue.id)
+                          issue_id: template_issue.id,
+                          retries: max_retries), template_issue.id)
             # Не прерываем выполнение, это не критично
           end
         end
