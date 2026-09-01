@@ -156,60 +156,63 @@ module TaskAutomation
       TaskAutomation::Service.log_message('info', 
         I18n.t('task_automation.log.processing_template', issue_id: template_issue.id),
         template_issue.id)
-      
       target_issue = nil
-      
       begin
         # ✅ ШАГ 1: Проверка проекта назначения
         project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
         project_fragment = template_issue.custom_field_value(project_field_id) if project_field_id.present?
-
         target_project = TaskAutomation::Service.get_target_project_by_fragment(
           project_fragment, @custom_field_ids)
-
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если проект не найден
         unless target_project
-          add_error(I18n.t('task_automation.log.project_not_found', 
+          error_text = I18n.t('task_automation.log.project_not_found', 
                            field_name: FIELD_TARGET_PROJECT,
-                           field_value: project_fragment.to_s), template_issue.id)
+                           field_value: project_fragment.to_s)
+          add_error(error_text, template_issue.id)
+          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          log_error_in_template_history(template_issue, error_text)
           return
         end
 
         # ✅ ШАГ 2: Проверка трекера
         tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
         tracker_name = template_issue.custom_field_value(tracker_field_id) if tracker_field_id.present?
-
         target_tracker = TaskAutomation::Service.get_target_tracker_by_name(
           tracker_name, target_project, @custom_field_ids)
-
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если трекер не найден
         unless target_tracker
-          add_error(I18n.t('task_automation.log.tracker_not_found', 
+          error_text = I18n.t('task_automation.log.tracker_not_found', 
                            field_name: FIELD_TARGET_TRACKER,
-                           tracker_name: tracker_name.to_s), template_issue.id)
+                           tracker_name: tracker_name.to_s)
+          add_error(error_text, template_issue.id)
+          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          log_error_in_template_history(template_issue, error_text)
           return
         end
 
         # ✅ ШАГ 3: Проверка назначения
         assignee_field_id = @custom_field_ids[FIELD_ASSIGNMENT_GROUP]
         assignee_search_string = template_issue.custom_field_value(assignee_field_id) if assignee_field_id.present?
-
         assignee = TaskAutomation::Service.get_assignee_by_search_string(
           assignee_search_string, @custom_field_ids)
-
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если назначенный не найден
         unless assignee
-          add_error(I18n.t('task_automation.log.assignee_not_found', 
+          error_text = I18n.t('task_automation.log.assignee_not_found', 
                            field_name: FIELD_ASSIGNMENT_GROUP,
-                           search_string: assignee_search_string.to_s), template_issue.id)
+                           search_string: assignee_search_string.to_s)
+          add_error(error_text, template_issue.id)
+          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          log_error_in_template_history(template_issue, error_text)
           return
         end
 
         # ✅ НОВАЯ ПРОВЕРКА: Может ли назначенный быть назначен в проекте
         assignee_validation = TaskAutomation::Service.validate_assignee_for_project(assignee, target_project)
-
         unless assignee_validation[:valid]
-          add_error(assignee_validation[:error], template_issue.id)
+          error_text = assignee_validation[:error]
+          add_error(error_text, template_issue.id)
+          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          log_error_in_template_history(template_issue, error_text)
           return
         end
 
@@ -217,85 +220,75 @@ module TaskAutomation
         if template_issue.children.any?
           subtask_validation = TaskAutomation::Service.validate_subtask_trackers(
             template_issue, target_project, @custom_field_ids)
-          
           unless subtask_validation[:valid]
+            # ✅ ИЗМЕНЕНО: записываем КАЖДУЮ ошибку в журнал шаблона с уведомлениями
             subtask_validation[:errors].each do |error|
               add_error(error, template_issue.id)
+              log_error_in_template_history(template_issue, error)
             end
-            
             return
           end
-          
         end
-    
+
         # ✅ ШАГ 5: Валидация дополнительных полей периодичности
         interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
         interval_unit = interval_unit_field_id.present? ? 
                         template_issue.custom_field_value(interval_unit_field_id) : 'день'
-        
         validation_result = validate_additional_fields(template_issue, interval_unit)
-        
         unless validation_result[:valid]
+          # ✅ ИЗМЕНЕНО: записываем КАЖДУЮ ошибку в журнал шаблона с уведомлениями
           validation_result[:errors].each do |error|
             add_error(error, template_issue.id)
+            log_error_in_template_history(template_issue, error)
           end
           return
         end
-        
         validation_result[:warnings].each do |warning|
           add_warning(warning, template_issue.id)
         end
-        
+
         # ✅ ШАГ 6: Проверка соответствия даты расписанию
         date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
-        
         schedule_check = check_date_matches_schedule(template_issue, interval_unit)
-        
         unless schedule_check[:matches]
           old_date = template_issue.custom_field_value(date_field_id)
-
           update_next_execution_date_to(template_issue, schedule_check[:next_valid_date])
-
           log_task_creation_in_template_history(
             template_issue, 
             nil,
             old_date, 
             schedule_check[:next_valid_date]
           )
-          
           add_warning(I18n.t('task_automation.validation.date_not_matching_schedule', 
                             new_date: schedule_check[:next_valid_date].strftime('%Y-%m-%d')), 
                       template_issue.id)
-          
           return
         end
-        
+
         # ✅ ШАГ 7: Создание целевой задачи
         target_issue = create_target_issue(template_issue, target_project, target_tracker, assignee)
         return unless target_issue
-        
+
         # Шаг 3.7: Добавление наблюдателей (вычисляем один раз для родителя и всех подзадач)
         target_issue.reload
         watcher_ids = calculate_watcher_ids(template_issue, assignee)
         add_watchers_to_issue(target_issue, watcher_ids)
+        target_issue.reload
+        target_issue.reload
 
-        target_issue.reload
-        
-        target_issue.reload
-        
         # Шаг 3.8: Обработка подзадач
         has_subtasks = template_issue.children.any?
-
         if has_subtasks
           success, subtasks_count = process_subtasks(template_issue, target_issue, target_project, assignee, watcher_ids)
-  
           unless success
             target_issue.destroy
-            add_error(I18n.t('task_automation.log.subtask_processing_failed', 
-                             target_issue_id: target_issue.id), template_issue.id)
+            error_text = I18n.t('task_automation.log.subtask_processing_failed', 
+                             target_issue_id: target_issue.id)
+            add_error(error_text, template_issue.id)
+            # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+            log_error_in_template_history(template_issue, error_text)
             return
           end
-          
           @created_subtasks_count += subtasks_count
           calculate_single_issue_dates(target_issue, template_issue)
           check_subtask_chain_vs_parent_due(target_issue, template_issue)
@@ -306,29 +299,32 @@ module TaskAutomation
         # Шаг 3.9: Логирование успешного создания
         subtask_message = has_subtasks ? 
            I18n.t('task_automation.log.with_subtasks', count: target_issue.children.count) : ''
-        
         TaskAutomation::Service.log_message('info',
           I18n.t('task_automation.log.issue_created', 
                  issue_id: target_issue.id,
                  subject: target_issue.subject,
                  subtasks: subtask_message),
           template_issue.id)
-        
         @created_issues_count += 1
-
         send_creation_notifications(target_issue, template_issue.id)
-        
+
         # Шаг 3.10: Обновление даты следующего выполнения
         begin
           update_next_execution_date(template_issue, target_issue.id)
         rescue => e
           add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
         end
-
       rescue => e
-        add_error(I18n.t('task_automation.log.template_processing_error', 
-                       issue_id: template_issue.id, 
-                       error: e.message), template_issue.id)
+        # ✅ ИЗМЕНЕНО: при исключении записываем ошибку в журнал шаблона
+        # Используем специальный ключ без issue_id шаблона в тексте
+        error_text_for_log = I18n.t('task_automation.log.template_processing_error', 
+                                    issue_id: template_issue.id, 
+                                    error: e.message)
+        error_text_for_journal = I18n.t('task_automation.journal.error_template_processing', 
+                                        error: e.message)
+        add_error(error_text_for_log, template_issue.id)
+        # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+        log_error_in_template_history(template_issue, error_text_for_journal)
       end
     end
 
@@ -363,8 +359,10 @@ module TaskAutomation
         end
         
         if fields_errors.any?
+          attribute_name = exception.record.errors.attribute_names.first
+          field_name = attribute_name.to_s.humanize
           return I18n.t('task_automation.log.issue_validation_failed',
-                        field: fields_errors.first.split(' ').first,
+                        field: field_name,
                         reason: fields_errors.first)
         end
       end
@@ -1210,6 +1208,45 @@ module TaskAutomation
     end
 
     # ============================================================================
+    # НОВЫЙ МЕТОД: Запись ошибки в журнал задачи-шаблона с рассылкой уведомлений
+    # В отличие от log_task_creation_in_template_history, здесь:
+    # - текст ошибки НЕ содержит номера задачи-шаблона
+    # - сохранение выполняется С уведомлениями (наблюдатели шаблона получат email)
+    # ============================================================================
+    def log_error_in_template_history(template_issue, error_message)
+      begin
+        # Получаем пользователя, от имени которого ведётся журналирование
+        user = User.find(@settings[:author_id])
+        # Инициализируем журнал с текстом ошибки (без номера шаблона)
+        template_issue.init_journal(user, error_message)
+        max_retries = 3
+        retry_count = 0
+        begin
+          template_issue.save!
+        rescue ActiveRecord::StaleObjectError => e
+          retry_count += 1
+          if retry_count < max_retries
+            template_issue.reload
+            # Повторно инициализируем журнал после reload (он сбрасывается)
+            template_issue.init_journal(user, error_message)
+            retry
+          else
+            # Не прерываем выполнение — это не критично для основной логики
+            Rails.logger.warn "[TaskAutomation] log_error_in_template_history: " \
+                              "не удалось записать ошибку в журнал шаблона " \
+                              "##{template_issue.id} после #{max_retries} попыток"
+          end
+        end
+      rescue => e
+        # Ловим любые неожиданные ошибки, чтобы не прерывать обработку
+        Rails.logger.error "[TaskAutomation] log_error_in_template_history: " \
+                           "ОШИБКА - #{e.class}: #{e.message}"
+        Rails.logger.error "[TaskAutomation] log_error_in_template_history: " \
+                           "Backtrace: #{e.backtrace.first(5).join("\n")}"
+      end
+    end
+
+    # ============================================================================
     # Вспомогательный метод форматирования даты
     # ============================================================================
     def format_date(date)
@@ -1660,9 +1697,11 @@ module TaskAutomation
     rescue ActiveRecord::RecordInvalid => e
       error_message = extract_validation_error_message(e, target_project, assignee, template_issue.id) 
       add_error(error_message, template_issue.id)
+      log_error_in_template_history(template_issue, error_message)
       nil
     rescue => e
       add_error(I18n.t('task_automation.log.issue_save_error', error: e.message), template_issue.id)
+      log_error_in_template_history(template_issue, I18n.t('task_automation.log.issue_save_error', error: e.message))
       nil
     end
 
@@ -1672,65 +1711,57 @@ module TaskAutomation
     def create_target_subtask(subtask_template, parent_issue, target_project, assignment_group, start_date, watcher_ids = [])
       subtask = Issue.new
       subtask.project = target_project 
-      
       # Получаем трекер подзадачи
       tracker_field_id = @custom_field_ids[FIELD_TARGET_TRACKER]
       tracker_name = subtask_template.custom_field_value(tracker_field_id) if tracker_field_id.present?
-      
       subtask_tracker = TaskAutomation::Service.get_target_tracker_by_name(
         tracker_name, target_project, @custom_field_ids)
-      
       unless subtask_tracker
-        add_error(I18n.t('task_automation.log.subtask_tracker_not_found'), subtask_template.id)
+        error_text = I18n.t('task_automation.log.subtask_tracker_not_found')
+        add_error(error_text, subtask_template.id)
+        log_error_in_template_history(subtask_template, error_text)
         return nil
       end
-
       subtask.tracker = subtask_tracker
       subtask.parent_id = parent_issue.id
       subtask.author = User.find(@settings[:author_id])
       subtask.subject = subtask_template.subject
-      
       # 1. Парсим описание
       parse_result = parse_custom_fields_from_description(subtask_template.description)
       raw_fields = parse_result[:fields]
       raw_used_lines = parse_result[:used_lines]
-      
       # 2. Применяем поля (с проверкой наличия в проекте/трекере)
       final_used_lines = apply_fields_to_issue(subtask, raw_fields, raw_used_lines, subtask_template.id)
-      
       # 3. Чистим описание
       remaining_lines = subtask_template.description.lines.reject { |line| final_used_lines.include?(line.chomp) }
       subtask.description = remaining_lines.join
-      
       subtask.start_date = start_date
       subtask.assigned_to = assignment_group
       subtask.status = subtask_tracker.default_status
-      
       # Сохранение подзадачи
       max_retries = 3
       retry_count = 0
-      
       begin
         subtask.save!(notifications: false)
-
         if watcher_ids.any?
           add_watchers_to_issue(subtask, watcher_ids)
         end
-
         copy_attachments(subtask_template, subtask)
-
         subtask
-        
       rescue ActiveRecord::StaleObjectError => e
         retry_count += 1
         if retry_count < max_retries
           retry
         else
-          add_error(I18n.t('task_automation.log.stale_object_error', issue_id: subtask.id, retries: max_retries), subtask_template.id) 
+          error_text = I18n.t('task_automation.log.stale_object_error', issue_id: subtask.id, retries: max_retries)
+          add_error(error_text, subtask_template.id) 
+          log_error_in_template_history(subtask_template, error_text)
           nil
         end
       rescue => e
-        add_error(I18n.t('task_automation.log.subtask_save_error', error: e.message), subtask_template.id)
+        error_text = I18n.t('task_automation.log.subtask_save_error', error: e.message)
+        add_error(error_text, subtask_template.id)
+        log_error_in_template_history(subtask_template, error_text)
         nil
       end
     end

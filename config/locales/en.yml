@@ -145,6 +145,7 @@ en:
     # ------------------------------------------------------------------------
     journal:
       task_created: "* [Task automation] Created task #%{issue_id}"
+      error_template_processing: "Template processing error: %{error}"
     
     # ------------------------------------------------------------------------
     # Rake Task Messages (Console Output and Logging)
