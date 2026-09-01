@@ -1,6 +1,6 @@
 # Redmine Task Automation
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)]()
 [![Redmine](https://img.shields.io/badge/redmine-5.0.0+-brightgreen.svg)]()
 [![Ruby](https://img.shields.io/badge/ruby-3.0.0+-yellow.svg)]()
 
@@ -87,7 +87,7 @@ touch tmp/restart.txt
 
 ## 🔄 Версия
 
-**Текущая версия:** 1.1.0
+**Текущая версия:** 1.1.1
 **Дата выпуска:** 1.09.2026
 
 ---

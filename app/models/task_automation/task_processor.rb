@@ -62,19 +62,25 @@ module TaskAutomation
     # ============================================================================
     def process
       TaskAutomation::Service.log_message('info', I18n.t('task_automation.log.processing_started'))
-      
       unless validate_settings
         TaskAutomation::Service.log_message('error', I18n.t('task_automation.log.settings_invalid'))
         return build_result(false)
       end
       
-      template_issues = find_template_issues
+      # ✅ ШАГ 0: Предварительная корректировка дат следующего выполнения
+      # Для ВСЕХ шаблонов, где next_execution_date < start_date
+      # Эта проверка выполняется ДО основного поиска задач для обработки
+      adjust_next_dates_before_start_dates
       
+      # ✅ ШАГ 1: Поиск задач-шаблонов для обработки
+      # Теперь дата начала НЕ учитывается в фильтре
+      template_issues = find_template_issues
       if template_issues.empty?
         TaskAutomation::Service.log_message('info', I18n.t('task_automation.log.no_templates_found'))
         return build_result(true)
       end
       
+      # ✅ ШАГ 2: Обработка найденных шаблонов
       template_issues.each do |template_issue|
         begin
           process_template_issue(template_issue)
@@ -87,6 +93,70 @@ module TaskAutomation
       
       log_summary
       build_result(@errors.empty?)
+    end
+
+    # ============================================================================
+    # Предварительная корректировка дат следующего выполнения
+    # 
+    # Находит ВСЕ задачи-шаблоны в проекте-источнике, у которых:
+    #   - Дата следующего выполнения (custom field) < Даты начала (start_date)
+    #   - Дата начала задана (не nil)
+    #
+    # Для таких задач выполняет корректировку даты следующего выполнения
+    # вперёд (итеративно применяя интервал), пока она не станет >= start_date.
+    #
+    # Записывает WARNING в лог-файл (без отправки администраторам) и создаёт
+    # запись в журнале шаблона с уведомлением наблюдателей.
+    # ============================================================================
+    def adjust_next_dates_before_start_dates
+      date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+      return unless date_field_id.present?
+      
+      # Находим ВСЕ задачи в проекте-источнике с нужным трекером
+      # Без фильтра по статусу, дате начала, дате завершения и т.д.
+      all_template_issues = Issue.where(
+        project_id: @settings[:source_project_id],
+        tracker_id: @settings[:tracker_id]
+      )
+      
+      adjusted_count = 0
+      
+      all_template_issues.each do |template_issue|
+        begin
+          # Получаем дату начала из стандартного поля
+          start_date = template_issue.start_date
+          next unless start_date.present?
+          
+          # Получаем дату следующего выполнения
+          next_execution_date = template_issue.custom_field_value(date_field_id)
+          next unless next_execution_date.present?
+          next_execution_date = next_execution_date.to_date
+          
+          # Проверяем: если next_execution_date >= start_date, пропускаем
+          next if next_execution_date >= start_date
+          
+          # ✅ Дата следующего выполнения раньше даты начала — нужно скорректировать
+          # Получаем интервал для корректировки
+          interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
+          interval_unit = interval_unit_field_id.present? ? 
+                          template_issue.custom_field_value(interval_unit_field_id) : 'день'
+          
+          # Вызываем метод корректировки
+          if check_and_adjust_next_date_vs_start_date(template_issue, interval_unit)
+            adjusted_count += 1
+          end
+          
+        rescue => e
+          # Не прерываем обработку остальных задач при ошибке
+          Rails.logger.error "[TaskAutomation] adjust_next_dates_before_start_dates: " \
+                             "Ошибка при обработке шаблона ##{template_issue.id}: #{e.message}"
+        end
+      end
+      
+      if adjusted_count > 0
+        TaskAutomation::Service.log_message('info',
+          I18n.t('task_automation.log.start_date_adjustment_summary', count: adjusted_count))
+      end
     end
 
     # ============================================================================
@@ -114,7 +184,6 @@ module TaskAutomation
     # ============================================================================
     def find_template_issues
       date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
-      
       if date_field_id.blank?
         @errors << I18n.t('task_automation.validation.date_field_not_found')
         return []
@@ -134,17 +203,15 @@ module TaskAutomation
         # а) Статус задачи должен быть "открыт" (не закрыт)
         next if issue.status.is_closed
         
-        # б) Дата начала: пустая ИЛИ сегодня ИЛИ в прошлом
-        #    Если в будущем → пропускаем
-        next if issue.start_date.present? && issue.start_date > today
+        # ✅ УДАЛЕНА ПРОВЕРКА: Дата начала больше не фильтрует задачи
+        # Ранее было: next if issue.start_date.present? && issue.start_date > today
         
-        # в) Дата завершения: пустая ИЛИ сегодня ИЛИ в будущем
+        # б) Дата завершения: пустая ИЛИ сегодня ИЛИ в будущем
         #    Если в прошлом (просрочена) → пропускаем
         next if issue.due_date.present? && issue.due_date < today
         
-        # Проверяем дату следующего выполнения с учётом "Создать заранее"
+        # в) Проверяем дату следующего выполнения с учётом "Создать заранее"
         next unless next_date.present?
-        
         (next_date.to_date - ahead_days.days) <= today
       end
     end
@@ -156,13 +223,16 @@ module TaskAutomation
       TaskAutomation::Service.log_message('info', 
         I18n.t('task_automation.log.processing_template', issue_id: template_issue.id),
         template_issue.id)
+
       target_issue = nil
+
       begin
         # ✅ ШАГ 1: Проверка проекта назначения
         project_field_id = @custom_field_ids[FIELD_TARGET_PROJECT]
         project_fragment = template_issue.custom_field_value(project_field_id) if project_field_id.present?
         target_project = TaskAutomation::Service.get_target_project_by_fragment(
           project_fragment, @custom_field_ids)
+
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если проект не найден
         unless target_project
           error_text = I18n.t('task_automation.log.project_not_found', 
@@ -179,6 +249,7 @@ module TaskAutomation
         tracker_name = template_issue.custom_field_value(tracker_field_id) if tracker_field_id.present?
         target_tracker = TaskAutomation::Service.get_target_tracker_by_name(
           tracker_name, target_project, @custom_field_ids)
+
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если трекер не найден
         unless target_tracker
           error_text = I18n.t('task_automation.log.tracker_not_found', 
@@ -195,6 +266,7 @@ module TaskAutomation
         assignee_search_string = template_issue.custom_field_value(assignee_field_id) if assignee_field_id.present?
         assignee = TaskAutomation::Service.get_assignee_by_search_string(
           assignee_search_string, @custom_field_ids)
+
         # ✅ ИСПРАВЛЕНО: Добавляем ошибку если назначенный не найден
         unless assignee
           error_text = I18n.t('task_automation.log.assignee_not_found', 
@@ -234,6 +306,7 @@ module TaskAutomation
         interval_unit_field_id = @custom_field_ids[FIELD_INTERVAL_UNIT]
         interval_unit = interval_unit_field_id.present? ? 
                         template_issue.custom_field_value(interval_unit_field_id) : 'день'
+
         validation_result = validate_additional_fields(template_issue, interval_unit)
         unless validation_result[:valid]
           # ✅ ИЗМЕНЕНО: записываем КАЖДУЮ ошибку в журнал шаблона с уведомлениями
@@ -314,6 +387,7 @@ module TaskAutomation
         rescue => e
           add_warning(I18n.t('task_automation.log.next_date_update_failed', error: e.message), template_issue.id)
         end
+
       rescue => e
         # ✅ ИЗМЕНЕНО: при исключении записываем ошибку в журнал шаблона
         # Используем специальный ключ без issue_id шаблона в тексте
@@ -329,7 +403,198 @@ module TaskAutomation
     end
 
     # ============================================================================
-    # НОВЫЙ МЕТОД: Извлечение понятного сообщения об ошибке валидации
+    # Проверка даты следующего выполнения относительно даты начала
+    #
+    # Если дата следующего выполнения (кастомное поле) раньше стандартного
+    # поля «Дата начала» (start_date) шаблона, метод сдвигает дату следующего
+    # выполнения вперёд, применяя интервал итеративно, пока она не станет
+    # >= даты начала.
+    #
+    # Действия при корректировке:
+    #   1. Запись WARNING в лог-файл плагина (без отправки администраторам).
+    #   2. Обновление кастомного поля «Дата следующего выполнения» в шаблоне.
+    #   3. Создание записи в журнале шаблона с уведомлением наблюдателей.
+    #
+    # Возвращает:
+    #   true  — дата была скорректирована
+    #   false — корректировка не потребовалась
+    # ============================================================================
+    def check_and_adjust_next_date_vs_start_date(template_issue, interval_unit)
+      date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+      interval_field_id = @custom_field_ids[FIELD_INTERVAL_VALUE]
+      day_number_field_id = @custom_field_ids[FIELD_DAY_NUMBER]
+      repeat_days_field_id = @custom_field_ids[FIELD_REPEAT_DAYS]
+      month_field_id = @custom_field_ids[FIELD_MONTH]
+
+      # Если нет поля даты следующего выполнения — нечего проверять
+      return false unless date_field_id.present?
+
+      # Получаем дату начала из стандартного поля шаблона
+      start_date = template_issue.start_date
+      # Если дата начала не задана — проверка не требуется
+      return false unless start_date.present?
+
+      # Получаем текущую дату следующего выполнения
+      current_next_date = template_issue.custom_field_value(date_field_id)
+      return false unless current_next_date.present?
+      current_next_date = current_next_date.to_date
+
+      # Если дата следующего выполнения >= даты начала — всё в порядке
+      return false if current_next_date >= start_date
+
+      # ================================================================
+      # Дата следующего выполнения раньше даты начала — нужно сдвинуть.
+      # Применяем интервал итеративно, пока new_date >= start_date.
+      # ================================================================
+      old_date = current_next_date.dup
+
+      interval_value = interval_field_id.present? ?
+                       (template_issue.custom_field_value(interval_field_id).to_i rescue 1) : 1
+
+      new_date = current_next_date
+      max_iterations = 1000
+      iterations = 0
+
+      # Цикл сдвига даты вперёд до тех пор, пока она не станет >= start_date
+      while new_date < start_date && iterations < max_iterations
+        new_date = case interval_unit
+                   when 'год', 'year'
+                     calculate_yearly_date(new_date, interval_value, template_issue,
+                                          day_number_field_id, repeat_days_field_id,
+                                          month_field_id, apply_interval: true)
+                   when 'месяц', 'month'
+                     calculate_monthly_date(new_date, interval_value, template_issue,
+                                           day_number_field_id, repeat_days_field_id,
+                                           apply_interval: true)
+                   when 'неделя', 'week'
+                     calculate_weekly_date(new_date, interval_value, template_issue,
+                                          repeat_days_field_id, apply_interval: true)
+                   when 'день', 'day'
+                     calculate_daily_date(new_date, interval_value)
+                   else
+                     # По умолчанию — дневной интервал
+                     calculate_daily_date(new_date, interval_value)
+                   end
+        iterations += 1
+      end
+
+      # Защита от бесконечного цикла (теоретически недостижимо, но для безопасности)
+      if iterations >= max_iterations
+        # Записываем WARNING только в лог-файл (без отправки администраторам)
+        TaskAutomation::Service.log_message('warning',
+          I18n.t('task_automation.validation.start_date_adjustment_max_iterations',
+                 start_date: start_date.strftime('%Y-%m-%d')),
+          template_issue.id)
+        return false
+      end
+
+      # ================================================================
+      # Обновляем кастомное поле «Дата следующего выполнения» в шаблоне
+      # ================================================================
+      template_issue.custom_field_values = { date_field_id => new_date }
+
+      # ================================================================
+      # Записываем WARNING в лог-файл плагина.
+      # Используем Service.log_message напрямую (НЕ add_warning),
+      # чтобы это сообщение НЕ попало в email администраторам.
+      # ================================================================
+      TaskAutomation::Service.log_message('warning',
+        I18n.t('task_automation.validation.start_date_adjustment',
+               old_date: old_date.strftime('%Y-%m-%d'),
+               new_date: new_date.strftime('%Y-%m-%d'),
+               start_date: start_date.strftime('%Y-%m-%d')),
+        template_issue.id)
+
+      # ================================================================
+      # Создаём запись в журнале шаблона с уведомлением наблюдателей.
+      # Метод сохраняет шаблон с notifications: true (по умолчанию),
+      # поэтому наблюдатели получат стандартное уведомление Redmine
+      # об изменении кастомного поля.
+      # ================================================================
+      log_date_adjustment_in_template_history(template_issue, old_date, new_date, start_date)
+
+      # Возвращаем true — дата была скорректирована
+      true
+    end
+
+    # ============================================================================
+    # Запись корректировки даты в журнал задачи-шаблона
+    #
+    # Создаёт запись в журнале (Journal) шаблона с деталью изменения
+    # кастомного поля «Дата следующего выполнения» (старое → новое значение).
+    # Сохранение выполняется С уведомлениями (notifications: true),
+    # чтобы наблюдатели шаблона получили стандартное email-уведомление
+    # Redmine об изменении задачи.
+    # ============================================================================
+    def log_date_adjustment_in_template_history(template_issue, old_date, new_date, start_date)
+      begin
+        # Получаем пользователя, от имени которого ведётся журналирование
+        user = User.find(@settings[:author_id])
+
+        date_field_id = @custom_field_ids[FIELD_NEXT_EXECUTION_DATE]
+        return unless date_field_id.present?
+
+        # Формируем текст заметки для журнала
+        journal_note = I18n.t('task_automation.journal.start_date_adjustment',
+                              old_date: old_date.strftime('%Y-%m-%d'),
+                              new_date: new_date.strftime('%Y-%m-%d'),
+                              start_date: start_date.strftime('%Y-%m-%d'))
+
+        # Инициализируем журнал с текстом заметки
+        template_issue.init_journal(user, journal_note)
+
+        # Добавляем деталь изменения кастомного поля (старое → новое значение)
+        journal_detail = JournalDetail.new(
+          property: 'cf',
+          prop_key: date_field_id.to_s,
+          old_value: format_date(old_date),
+          value: format_date(new_date)
+        )
+        template_issue.current_journal.details << journal_detail
+
+        # ================================================================
+        # Сохраняем С уведомлениями (без notifications: false),
+        # чтобы наблюдатели шаблона получили email об изменении.
+        # Повторная попытка при StaleObjectError.
+        # ================================================================
+        max_retries = 3
+        retry_count = 0
+        begin
+          template_issue.save!
+        rescue ActiveRecord::StaleObjectError => e
+          retry_count += 1
+          if retry_count < max_retries
+            template_issue.reload
+            # После reload восстанавливаем кастомное поле и журнал
+            template_issue.custom_field_values = { date_field_id => new_date }
+            template_issue.init_journal(user, journal_note)
+            template_issue.current_journal.details << JournalDetail.new(
+              property: 'cf',
+              prop_key: date_field_id.to_s,
+              old_value: format_date(old_date),
+              value: format_date(new_date)
+            )
+            retry
+          else
+            # Не прерываем выполнение — корректировка поля уже выполнена,
+            # не удалось только записать в журнал
+            Rails.logger.warn "[TaskAutomation] log_date_adjustment_in_template_history: " \
+                              "не удалось записать в журнал шаблона " \
+                              "##{template_issue.id} после #{max_retries} попыток"
+          end
+        end
+
+      rescue => e
+        # Ловим любые неожиданные ошибки, чтобы не прерывать обработку
+        Rails.logger.error "[TaskAutomation] log_date_adjustment_in_template_history: " \
+                           "ОШИБКА - #{e.class}: #{e.message}"
+        Rails.logger.error "[TaskAutomation] log_date_adjustment_in_template_history: " \
+                           "Backtrace: #{e.backtrace.first(5).join("\n")}"
+      end
+    end
+
+    # ============================================================================
+    # Извлечение понятного сообщения об ошибке валидации
     # ============================================================================
     def extract_validation_error_message(exception, target_project, assignee, template_issue_id)
       error_message = exception.message

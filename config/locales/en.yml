@@ -55,6 +55,7 @@ en:
       field_not_found: "Custom field '%{field_name}' not found in system"
       required_field_missing: "Required field '%{field_name}' is not filled in created task"
       field_not_available_in_scope: "Field '%{field_name}' is specified in the template but is not available in the target project '%{project_name}'. The value will be skipped."
+      start_date_adjustment_summary: "Start date adjustment summary: %{count} templates adjusted (next execution date < start date)."
       
       # Date and Calculations
       date_calculation_error: "Error calculating next execution date: %{error}"
@@ -146,6 +147,7 @@ en:
     journal:
       task_created: "* [Task automation] Created task #%{issue_id}"
       error_template_processing: "Template processing error: %{error}"
+      start_date_adjustment: "Next execution date adjusted from %{old_date} to %{new_date} (start date: %{start_date})."
     
     # ------------------------------------------------------------------------
     # Rake Task Messages (Console Output and Logging)
@@ -310,3 +312,5 @@ en:
       tracker_required: "Main task tracker is required"
       week_multiple_days_interval_warning: "Multiple repeat days: interval is ignored"
       year_month_required: "For interval 'year' with fields 'Number' and 'Repeat days' field 'Month' is required"
+      start_date_adjustment: "Next execution date %{old_date} is earlier than start date %{start_date}. Adjusted to %{new_date}."
+      start_date_adjustment_max_iterations: "Failed to adjust next execution date past start date %{start_date}: maximum iterations exceeded."
