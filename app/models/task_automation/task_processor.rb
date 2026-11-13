@@ -233,13 +233,13 @@ module TaskAutomation
         target_project = TaskAutomation::Service.get_target_project_by_fragment(
           project_fragment, @custom_field_ids)
 
-        # ✅ ИСПРАВЛЕНО: Добавляем ошибку если проект не найден
+        # Добавляем ошибку если проект не найден
         unless target_project
           error_text = I18n.t('task_automation.log.project_not_found', 
                            field_name: FIELD_TARGET_PROJECT,
                            field_value: project_fragment.to_s)
           add_error(error_text, template_issue.id)
-          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          # записываем ошибку в журнал шаблона с рассылкой уведомлений
           log_error_in_template_history(template_issue, error_text)
           return
         end
@@ -250,13 +250,13 @@ module TaskAutomation
         target_tracker = TaskAutomation::Service.get_target_tracker_by_name(
           tracker_name, target_project, @custom_field_ids)
 
-        # ✅ ИСПРАВЛЕНО: Добавляем ошибку если трекер не найден
+        # Добавляем ошибку если трекер не найден
         unless target_tracker
           error_text = I18n.t('task_automation.log.tracker_not_found', 
                            field_name: FIELD_TARGET_TRACKER,
                            tracker_name: tracker_name.to_s)
           add_error(error_text, template_issue.id)
-          # ✅ ИЗМЕНЕНО: записываем ошибку в журнал шаблона с рассылкой уведомлений
+          # записываем ошибку в журнал шаблона с рассылкой уведомлений
           log_error_in_template_history(template_issue, error_text)
           return
         end

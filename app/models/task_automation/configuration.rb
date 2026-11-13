@@ -16,7 +16,7 @@ module TaskAutomation
     FIELD_NEXT_EXECUTION_DATE = 'Дата следующего выполнения'
     FIELD_CREATE_AHEAD_DAYS = 'Создать заранее'
     FIELD_TARGET_PROJECT = 'Проект назначения'
-    FIELD_TARGET_TRACKER = 'Трекер'
+    FIELD_TARGET_TRACKER = 'Трекер задачи'
     FIELD_ASSIGNMENT_GROUP = 'Назначение'
     FIELD_WATCHER_GROUPS = 'Наблюдатели'
     FIELD_DURATION_DAYS = 'Срок выполнения'
